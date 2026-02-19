@@ -5,57 +5,19 @@
  */
 
 /** Settings – consider Script Properties for tokens in production */
-const SLACK_TOKEN = 'xoxb-7204631658336-10499808538145-1rIZYuFg8ZEmUOXfHqiuhvAk';
-const OPENAI_API_KEY = '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';
-const FOLDER_ID = '1oNOXk3uAdqgVoHYEzzr2kWq2_oDIRG6Z';
+const SLACK_TOKEN = '';
+const OPENAI_API_KEY = '';
+const FOLDER_ID = '';
 
 const CHANNELS = [
-  { id: 'C0AEEE47WTE', name: 'po' },
-  { id: 'C0ADVC5FNNB', name: 'data ai' },
-  { id: 'C0AEEE6PP2Q', name: 'designer' },
-  { id: 'C0AEARMSTV0', name: 'platform engineer' },
-  { id: 'C0AEEDYHN0L', name: 'swe' }
+  { id: '', name: 'po' },
+  { id: '', name: 'data ai' },
+  { id: '', name: 'designer' },
+  { id: '', name: 'platform engineer' },
+  { id: '', name: 'swe' }
 ];
 
 const TARGET_MEMBERS = {
-  'U075QU6C8CA':'강용석',
-  'U09UM9TL7RR':'강상인',
-  'U075QU3L8PL':'고재용',
-  'U08121KA8UE':'곽진호',
-  'U0A7ZNA3GGM':'김대관',
-  'U08QZ1R50BW':'김두호',
-  'U0763JDP665':'김우현',
-  'U092CCMS8Q3':'김지원',
-  'U09B3JGBZC1':'김진호',
-  'U0875KBHBGE':'김태유',
-  'U075QQVDFV1':'나형선',
-  'U089KN5LLR2':'박순혁',
-  'U08NBDXK67P':'박영국',
-  'U0A5ZSW8H52':'박유원',
-  'U07J2CNL360':'배수민',
-  'U0875KBQ73Q':'서영민',
-  'U07LDAN8RMK':'설정우',
-  'U08MVTYLPBK':'송창원',
-  'U076DN2PRA4':'신재하',
-  'U0A5ZSVE4SY':'신희송',
-  'U0A5ZSYU3J8':'양아현',
-  'U076DN2H9KJ':'엄재식',
-  'U07ALT3A6T0':'우현철',
-  'U0A5PTJRPFD':'유지원',
-  'U09P63ALASY':'윤순호',
-  'U075KN4SD5Y':'이규백',
-  'U08QSU2J7M5':'이득환',
-  'U08121KG6JJ':'임수빈',
-  'U07HGNYFGLA':'장지훈',
-  'U076DN1DAPJ':'전창환',
-  'U084A69333K':'주창륜',
-  'U075E9KHH6G':'최은지',
-  'U092XKW7E9Y':'최창훈',
-  'U07H26XKCBH':'하지민',
-  'U08Q8DFA7B3':'한동균',
-  'U075QQT5G2X':'한재현',
-  'U08VARJECTC':'한태경',
-  'U075DAJ08BY':'황규종'
 };
 
 /** Layout constants */
@@ -73,7 +35,7 @@ const HEADER_ROW = ['No.', '작성시간', '이름', '오늘 완료한 업무', 
 const SLACK_DIVIDER = '─────────────────────────';
 
 /** GPT 요약(전일 브리핑)을 포스팅할 Slack 채널 ID – 원하는 채널 ID로 변경 (비우면 포스트 안 함) */
-const BRIEFING_CHANNEL_ID = 'C0A5CLXQKRV';
+const BRIEFING_CHANNEL_ID = '';
 
 // ---------------------------------------------------------------------------
 // Block Kit 메시지 정의 (수정됨)
@@ -92,7 +54,7 @@ const MORNING_MESSAGE = [
     "type": "section",
     "text": {
       "type": "mrkdwn",
-      "text": "*이름*: OOO\n\n*오늘의 업무*\n• 업무 1 개요, <https://waiker.atlassian.net/...|컨플루언스 링크>, <https://waiker.atlassian.net/...|지라 링크>\n• 업무 2 개요, <https://waiker.atlassian.net/...|컨플루언스 링크>, <https://waiker.atlassian.net/...|지라 링크>"
+      "text": "*이름*: OOO\n\n*오늘의 업무*\n• 업무 1 개요, <https://''.atlassian.net/...|컨플루언스 링크>, <https://''.atlassian.net/...|지라 링크>\n• 업무 2 개요, <https://''.atlassian.net/...|컨플루언스 링크>, <https://''.atlassian.net/...|지라 링크>"
     }
   }
 ];
@@ -110,7 +72,7 @@ const EVENING_MESSAGE = [
     "type": "section",
     "text": {
       "type": "mrkdwn",
-      "text": "*이름*: OOO\n\n*완료한 업무*\n• 업무 1 설명, <https://waiker.atlassian.net/...|컨플루언스 링크>, <https://waiker.atlassian.net/...|지라 링크>\n• 업무 2 설명, <https://waiker.atlassian.net/...|컨플루언스 링크>, <https://waiker.atlassian.net/...|지라 링크>\n\n*백로그*\n• 업무 1 요약, <https://waiker.atlassian.net/...|컨플루언스 링크>, <https://waiker.atlassian.net/...|지라 링크>"
+      "text": "*이름*: OOO\n\n*완료한 업무*\n• 업무 1 설명, <https://''.atlassian.net/...|컨플루언스 링크>, <https://''.atlassian.net/...|지라 링크>\n• 업무 2 설명, <https://''.atlassian.net/...|컨플루언스 링크>, <https://''.atlassian.net/...|지라 링크>\n\n*백로그*\n• 업무 1 요약, <https://''.atlassian.net/...|컨플루언스 링크>, <https://''.atlassian.net/...|지라 링크>"
     }
   }
 ];
