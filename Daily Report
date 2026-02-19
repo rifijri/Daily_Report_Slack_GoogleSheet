@@ -1,0 +1,743 @@
+
+/**
+ * Daily Report: Slack scrape -> AI parse -> Google Sheet (optimized).
+ * Multi-channel support; bullet items formatted with \n\n for readability.
+ */
+
+/** Settings – consider Script Properties for tokens in production */
+const SLACK_TOKEN = '';
+const OPENAI_API_KEY = '';
+const FOLDER_ID = '';
+
+const CHANNELS = [
+  { id: '', name: 'po' },
+  { id: '', name: 'data ai' },
+  { id: '', name: 'designer' },
+  { id: '', name: 'platform engineer' },
+  { id: '', name: 'swe' }
+];
+
+/** Layout constants */
+const TZ = 'GMT+9';
+const DATE_FORMAT = 'yyyyMMdd';
+const DATE_BRIEFING_FORMAT = 'M월 d일 (EEE)';
+const TIME_FORMAT = 'HH:mm:ss';
+/** 수집 시작 시각: 이 시각(KST) 이후 메시지만 수집 (7 = 오전 7시) */
+const COLLECTION_START_HOUR_KST = 7;
+const LOOKBACK_SECONDS = 24 * 60 * 60;
+const NUM_COLUMNS = 5;
+const HEADER_ROW = ['No.', '작성시간', '이름', '오늘 완료한 업무', '백로그'];
+
+/** Slack 브리핑: 채널별 섹션 구분선 */
+const SLACK_DIVIDER = '─────────────────────────';
+
+/** GPT 요약(전일 브리핑)을 포스팅할 Slack 채널 ID – 원하는 채널 ID로 변경 (비우면 포스트 안 함) */
+const BRIEFING_CHANNEL_ID = 'C0A5CLXQKRV';
+
+// ---------------------------------------------------------------------------
+// Block Kit 메시지 정의 (수정됨)
+// ---------------------------------------------------------------------------
+
+const MORNING_MESSAGE = [
+  {
+    "type": "header",
+    "text": {
+      "type": "plain_text",
+      "text": "일일 업무 보고(출근)",
+      "emoji": true
+    }
+  },
+  {
+    "type": "section",
+    "text": {
+      "type": "mrkdwn",
+      "text": "*이름*: OOO\n\n*오늘의 업무*\n• 업무 1 개요, <https://''.atlassian.net/...|컨플루언스 링크>, <https://''.atlassian.net/...|지라 링크>\n• 업무 2 개요, <https://''.atlassian.net/...|컨플루언스 링크>, <https://''.atlassian.net/...|지라 링크>"
+    }
+  }
+];
+
+const EVENING_MESSAGE = [
+  {
+    "type": "header",
+    "text": {
+      "type": "plain_text",
+      "text": "일일 업무 보고(퇴근)",
+      "emoji": true
+    }
+  },
+  {
+    "type": "section",
+    "text": {
+      "type": "mrkdwn",
+      "text": "*이름*: OOO\n\n*완료한 업무*\n• 업무 1 설명, <https://''.atlassian.net/...|컨플루언스 링크>, <https://''.atlassian.net/...|지라 링크>\n• 업무 2 설명, <https://''.atlassian.net/...|컨플루언스 링크>, <https://''.atlassian.net/...|지라 링크>\n\n*백로그*\n• 업무 1 요약, <https://''.atlassian.net/...|컨플루언스 링크>, <https://''.atlassian.net/...|지라 링크>"
+    }
+  }
+];
+
+/** Regex: line that looks like a bullet */
+const BULLET_LINE_REGEX = /^(?:[-•*]\s*|\d+\.\s*)/m;
+
+/** OpenAI API endpoint */
+const OPENAI_CHAT_URL = 'https://api.openai.com/v1/chat/completions';
+
+/**
+ * 오늘 KST 기준 COLLECTION_START_HOUR_KST(7시)부터 지금까지의 구간을 수집하도록 oldest(Unix 초) 반환.
+ * 7시 이전이면 전일 7시를 시작점으로 한다.
+ */
+function getOldestTimestampSince7amKst() {
+  const now = new Date();
+  const utcMs = now.getTime();
+  const kstMs = utcMs + 9 * 60 * 60 * 1000;
+  const kstDate = new Date(kstMs);
+  let hour = kstDate.getUTCHours();
+  const min = kstDate.getUTCMinutes();
+  const sec = kstDate.getUTCSeconds();
+  let secondsSinceStart = (hour - COLLECTION_START_HOUR_KST) * 3600 + min * 60 + sec;
+  if (hour < COLLECTION_START_HOUR_KST) {
+    secondsSinceStart += 24 * 3600;
+  }
+  return Math.floor(utcMs / 1000) - secondsSinceStart;
+}
+
+// ---------------------------------------------------------------------------
+// 알림 전송 함수 (수정됨: Block Kit 전송 사용)
+// ---------------------------------------------------------------------------
+
+/**
+ * 오전 7:59 – 출근 보고 요청
+ */
+function morningDutyPrompt() {
+  CHANNELS.forEach(ch => {
+    // 중요: Block Kit 배열을 보낼 때는 postBlocksToSlack 사용 (중간 인자는 알림용 텍스트)
+    postBlocksToSlack(ch.id, "일일 업무 보고(출근) 작성 요청", MORNING_MESSAGE);
+  });
+}
+
+/**
+ * 오후 5:00 – 퇴근 보고 요청
+ */
+function eveningDutyPrompt() {
+  CHANNELS.forEach(ch => {
+    // 중요: Block Kit 배열을 보낼 때는 postBlocksToSlack 사용
+    postBlocksToSlack(ch.id, "일일 업무 보고(퇴근) 작성 요청", EVENING_MESSAGE);
+  });
+}
+
+/**
+ * 메인 로직: Slack 수집(7am KST~현재) -> AI 분류 -> 시트 생성 및 스타일 적용
+ */
+function collectDataAndCreateSheet() {
+  const dateStr = Utilities.formatDate(new Date(), TZ, DATE_FORMAT);
+  const folder = DriveApp.getFolderById(FOLDER_ID);
+  const oldest = getOldestTimestampSince7amKst();
+
+  CHANNELS.forEach((ch, index) => {
+    if (index > 0) Utilities.sleep(400);
+    processChannel(ch, dateStr, folder, oldest);
+  });
+}
+
+/**
+ * 시트 생성(채널별) + GPT 브리핑 한 번에 실행.
+ * 7am KST~현재 구간으로 한 번만 수집 후, 채널별 시트 생성 + BRIEFING_CHANNEL_ID로 요약 포스팅.
+ */
+function runDailyReportAndBriefing() {
+  const oldest = getOldestTimestampSince7amKst();
+  const folder = DriveApp.getFolderById(FOLDER_ID);
+  const aggregated = collectAllChannelsData(oldest);
+
+  aggregated.channels.forEach((ch, index) => {
+    const dateStr = aggregated.dateStr;
+    const fileName = `${dateStr}_${ch.name}`;
+    const ss = SpreadsheetApp.create(fileName);
+    const sheet = ss.getSheets()[0];
+    DriveApp.getFileById(ss.getId()).moveTo(folder);
+    sheet.appendRow(HEADER_ROW);
+    const rows = [];
+    ch.members.forEach((m, i) => {
+      rows.push([i + 1, m.time, m.name, m.duties, m.backlog]);
+    });
+    if (rows.length > 0) {
+      sheet.getRange(2, 1, rows.length, NUM_COLUMNS).setValues(rows);
+    }
+    applyExcelStyle(sheet);
+  });
+
+  const totalCount = aggregated.channels.reduce(function (sum, c) { return sum + c.members.length; }, 0);
+  if (totalCount === 0) return;
+
+  const summaries = callOpenAIThreeSummaries(aggregated);
+  const blocks = buildBriefingBlocks(aggregated, totalCount, summaries);
+  if (BRIEFING_CHANNEL_ID) {
+    postBlocksToSlack(BRIEFING_CHANNEL_ID, '전일 업무 브리핑', blocks);
+  }
+  return blocks;
+}
+
+/**
+ * 시트 생성(채널별) + 종합 보고서 Doc 한 번에 실행
+ */
+function collectDataAndCreateSheetWithReport() {
+  collectDataAndCreateSheet();
+  Utilities.sleep(1000);
+  createComprehensiveReport();
+}
+
+/**
+ * 전체 채널 종합 보고서: 5개 채널 수집 -> AI 종합 분석 -> Google Doc 저장
+ * 채널별·멤버별 요약을 하나의 문서로 정리한다.
+ */
+function createComprehensiveReport() {
+  const dateStr = Utilities.formatDate(new Date(), TZ, DATE_FORMAT);
+  const folder = DriveApp.getFolderById(FOLDER_ID);
+  const oldest = getOldestTimestampSince7amKst();
+
+  const aggregated = collectAllChannelsData(oldest);
+  const reportText = callOpenAIComprehensiveReport(aggregated);
+  if (!reportText || !reportText.trim()) return;
+
+  const docName = `${dateStr}_종합보고서`;
+  const doc = DocumentApp.create(docName);
+  const body = doc.getBody();
+  body.clear();
+  body.appendParagraph(`일일 종합 보고서 (${aggregated.dateStr})`).setHeading(DocumentApp.ParagraphHeading.TITLE);
+  body.appendHorizontalRule();
+  reportText.split(/\n\n+/).forEach((block) => {
+    if (block.trim()) body.appendParagraph(block.trim());
+  });
+  DriveApp.getFileById(doc.getId()).moveTo(folder);
+}
+
+/**
+ * [수정됨] 스마트 수집 로직
+ * - 한 유저가 여러 개의 메시지를 썼을 경우,
+ * - 최신 메시지부터 순서대로 AI에게 물어봐서 "업무 보고가 맞다"고 한 첫 번째 메시지를 채택합니다.
+ * - 잡담("제출함", "수정함")이 최신이어도 건너뛰고 진짜 보고서를 찾아냅니다.
+ */
+function collectAllChannelsData(oldest) {
+  const now = new Date();
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const dateStr = Utilities.formatDate(new Date(), TZ, DATE_FORMAT);
+  const channels = [];
+
+  Logger.log('=== 스마트 데이터 수집 시작 ===');
+
+  CHANNELS.forEach((ch, index) => {
+    if (index > 0) Utilities.sleep(400);
+    
+    // 1. 해당 채널의 모든 메시지 가져오기 (7시 이후)
+    const messages = fetchSlackHistory(ch.id, oldest);
+    Logger.log(`[${ch.name}] 총 메시지 수: ${messages.length}`);
+
+    // 2. 메시지를 유저별로 그룹화 (User ID -> [메시지1, 메시지2, ...])
+    const userMessagesMap = {};
+    messages.forEach(msg => {
+      if (!userMessagesMap[msg.user]) {
+        userMessagesMap[msg.user] = [];
+      }
+      userMessagesMap[msg.user].push(msg);
+    });
+
+    const members = [];
+
+    // 3. 각 유저별로 루프를 돌며 "유효한 보고서" 찾기
+    Object.keys(userMessagesMap).forEach(userId => {
+      const userMsgs = userMessagesMap[userId]; // 이 유저가 쓴 글들 (최신순)
+      
+      Logger.log(` -> 사용자(${userId}) 메시지 ${userMsgs.length}개 검사 시작`);
+
+      // 최신 글부터 하나씩 검사
+      for (let i = 0; i < userMsgs.length; i++) {
+        const msg = userMsgs[i];
+        
+        // AI 파서 호출
+        const extracted = callOpenAIParser(msg.text);
+
+        if (extracted.isRelevant) {
+          // ✅ 유효한 보고서를 찾음!
+          Logger.log(`    => [채택] 메시지 발견! (내용: ${msg.text.substring(0, 20)}...)`);
+          
+          const time = Utilities.formatDate(new Date(msg.ts * 1000), TZ, TIME_FORMAT);
+          members.push({
+            name: String(extracted.name),
+            duties: String(extracted.duties),
+            backlog: String(extracted.backlog),
+            time: time
+          });
+          
+          // 이 유저의 보고서를 찾았으니, 더 과거의 메시지는 볼 필요 없음 (루프 종료)
+          break; 
+        } else {
+          // ❌ 업무 보고가 아님 (잡담 등) -> 다음 메시지(조금 더 예전 글) 검사
+          Logger.log(`    => [패스] 업무 보고 아님 (내용: ${msg.text.substring(0, 20)}...)`);
+        }
+      }
+    });
+
+    channels.push({ name: ch.name, id: ch.id, members: members });
+  });
+
+  return { dateStr: dateStr, channels: channels };
+}
+
+/**
+ * AI에게 전체 채널 데이터를 넘겨 채널별·멤버별 종합 보고서 문단 생성
+ * @param {{ dateStr: string, channels: Array }} aggregated - collectAllChannelsData 반환값
+ * @returns {string} - 보고서 본문 텍스트
+ */
+function callOpenAIComprehensiveReport(aggregated) {
+  const systemPrompt =
+    'You are a daily report summarizer. Given structured data from 5 Slack channels (po, data ai, designer, platform engineer, swe), ' +
+    'produce a comprehensive report in Korean. Structure:\n' +
+    '1. 전체 요약 (Executive summary): 2–3 sentences on overall activity and highlights.\n' +
+    '2. 채널별 요약: For each channel, write a short paragraph summarizing the channel (member count, main themes, notable backlogs).\n' +
+    '3. 멤버별 정리: For each member, one line: [채널명] 이름 – 완료 업무 요약; 백로그 있으면 간단히.\n' +
+    'Keep the tone professional and concise. Output only the report body, no JSON or meta-commentary.';
+
+  const userPayload = JSON.stringify(aggregated, null, 2);
+
+  const options = {
+    method: 'post',
+    headers: { Authorization: 'Bearer ' + OPENAI_API_KEY, 'Content-Type': 'application/json' },
+    payload: JSON.stringify({
+      model: 'gpt-4o',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPayload }
+      ]
+    }),
+    muteHttpExceptions: true
+  };
+
+  try {
+    const res = UrlFetchApp.fetch(OPENAI_CHAT_URL, options);
+    const raw = res.getContentText();
+    const parsed = JSON.parse(raw);
+    const content = parsed.choices && parsed.choices[0] && parsed.choices[0].message && parsed.choices[0].message.content;
+    return content ? String(content).trim() : '';
+  } catch (e) {
+    return '';
+  }
+}
+
+/**
+ * @param {{ id: string, name: string }} ch - Channel config
+ * @param {string} dateStr - yyyyMMdd
+ * @param {GoogleAppsScript.Drive.Folder} folder - Target Drive folder
+ * @param {number} oldest - Unix timestamp (seconds) for Slack history
+ */
+function processChannel(ch, dateStr, folder, oldest) {
+  const fileName = `${dateStr}_${ch.name}`;
+  const ss = SpreadsheetApp.create(fileName);
+  const sheet = ss.getSheets()[0];
+  DriveApp.getFileById(ss.getId()).moveTo(folder);
+
+  sheet.appendRow(HEADER_ROW);
+
+  const messages = fetchSlackHistory(ch.id, oldest);
+  const reportsMap = getLatestReportPerUser(messages);
+  const rows = buildDataRows(reportsMap);
+
+  if (rows.length > 0) {
+    sheet.getRange(2, 1, rows.length, NUM_COLUMNS).setValues(rows);
+  }
+
+  applyExcelStyle(sheet);
+}
+
+/**
+ * Fetches channel history from Slack API.
+ * @param {string} channelId - Slack channel ID
+ * @param {number} oldest - Unix timestamp (seconds)
+ * @returns {Array} - Raw message objects (user messages only, no bot)
+ */
+function fetchSlackHistory(channelId, oldest) {
+  const url = `https://slack.com/api/conversations.history?channel=${channelId}&oldest=${oldest}`;
+  const res = UrlFetchApp.fetch(url, {
+    headers: { Authorization: 'Bearer ' + SLACK_TOKEN },
+    muteHttpExceptions: true
+  });
+  const data = JSON.parse(res.getContentText());
+  if (!data.ok || !data.messages) return [];
+  return data.messages.filter(msg => !msg.bot_id && !msg.subtype);
+}
+
+/**
+ * Keeps only the latest message per user (by conversation order).
+ * @param {Array} messages - From fetchSlackHistory
+ * @returns {Map<string, object>} - userId -> message
+ */
+function getLatestReportPerUser(messages) {
+  const map = new Map();
+  messages.forEach(msg => { if (!map.has(msg.user)) map.set(msg.user, msg); });
+  return map;
+}
+
+/**
+ * Builds sheet data rows from report messages (bulk for setValues).
+ * @param {Map<string, object>} reportsMap - userId -> message
+ * @returns {Array<Array>} - 2D array for setValues
+ */
+function buildDataRows(reportsMap) {
+  const rows = [];
+  let count = 1;
+  reportsMap.forEach((msg) => {
+    const extracted = callOpenAIParser(msg.text);
+    if (!extracted.isRelevant) return;
+    const time = Utilities.formatDate(new Date(msg.ts * 1000), TZ, TIME_FORMAT);
+    rows.push([
+      count++,
+      time,
+      String(extracted.name),
+      String(extracted.duties),
+      String(extracted.backlog)
+    ]);
+  });
+  return rows;
+}
+
+/**
+ * Ensures bullet/list items are separated by double newlines in the sheet.
+ * @param {string} text - duties or backlog string
+ * @returns {string} - same content with \n\n between bullet items
+ */
+function ensureDoubleNewlinesBetweenBullets(text) {
+  if (!text || typeof text !== 'string') return text;
+  const trimmed = text.trim();
+  if (!trimmed) return text;
+
+  // 이미 AI가 줄바꿈을 포함해서 줬을 가능성이 높으므로, 
+  // 여기서는 단순히 줄 사이가 너무 붙어있는 경우만 처리하거나 그대로 반환합니다.
+  // 링크가 포함된 줄(URL)은 bullet regex에 걸리지 않을 수 있으므로 
+  // 과도한 빈 줄 삽입을 방지하기 위해 간단히 처리합니다.
+  return trimmed; 
+}
+
+/**
+ * 엑셀 스타일: 헤더, 열 너비, 줄무늬, 테두리, 정렬, 헤더 고정
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ */
+function applyExcelStyle(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return;
+
+  const header = sheet.getRange(1, 1, 1, NUM_COLUMNS);
+  header
+    .setBackground('#333333')
+    .setFontColor('#ffffff')
+    .setFontWeight('bold')
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle');
+
+  sheet.setColumnWidth(1, 45);
+  sheet.setColumnWidth(2, 90);
+  sheet.setColumnWidth(3, 100);
+  sheet.setColumnWidth(4, 500);
+  sheet.setColumnWidth(5, 300);
+
+  for (let i = 2; i <= lastRow; i++) {
+    if (i % 2 === 0) sheet.getRange(i, 1, 1, NUM_COLUMNS).setBackground('#f8f8f8');
+  }
+
+  sheet.getRange(1, 1, lastRow, NUM_COLUMNS).setBorder(true, true, true, true, true, true, '#d9d9d9', SpreadsheetApp.BorderStyle.SOLID);
+  sheet.getRange(2, 1, lastRow - 1, 3).setHorizontalAlignment('center');
+  sheet.getRange(2, 4, lastRow - 1, 2).setVerticalAlignment('top').setWrap(true);
+  sheet.setFrozenRows(1);
+}
+
+// ---------------------------------------------------------------------------
+// AI 파서 (프롬프트 강화: 링크 보존 및 포맷팅)
+// ---------------------------------------------------------------------------
+
+/**
+ * [수정됨] AI 파서: 복잡한 링크/라벨 제거 및 JSON 파싱 안정성 강화
+ */
+function callOpenAIParser(text) {
+  const url = "https://api.openai.com/v1/chat/completions";
+  
+  const systemPrompt = 
+    "너는 '데이터 정제 및 추출 전문가'야. 입력된 텍스트에서 업무 보고 데이터를 구조화된 JSON으로 추출해.\n\n" +
+    
+    "**1. 기본 규칙 (isRelevant)**:\n" +
+    "   - 업무와 관련된 내용(프로젝트명, 개발, 배포, 회의 등)이 포함되어 있으면 무조건 **true**.\n" +
+    "   - 단순 잡담('퇴근합니다', '안녕하세요')인 경우에만 false.\n\n" +
+
+    "**2. 데이터 추출 규칙**:\n" +
+    "   - **name**: 텍스트의 첫 번째 줄을 이름으로 간주하거나 '이름: OOO' 패턴에서 추출. 없으면 '미기입'.\n" +
+    "   - **duties (완료한 업무)**: '완료한 업무', 'Today', '금일 업무' 등의 헤더 아래에 있는 항목들.\n" +
+    "   - **backlog (백로그)**: '백로그', 'Backlog', '예정 업무' 등의 헤더 아래에 있는 항목들.\n\n" +
+
+    "**3. 텍스트 정제 및 링크 처리 (가장 중요)**:\n" +
+    "   - 모든 항목은 불렛 포인트(•, -)나 번호로 구분된 리스트 형태여야 함.\n" +
+    "   - **한 줄에 텍스트와 링크가 섞여 있다면 반드시 줄바꿈(\\n)으로 분리해.**\n" +
+    "   - **링크 라벨 제거**: '컨플루언스:', '지라:', 'Jira:', 'Wiki:', '링크:' 같은 텍스트는 **삭제**하고 순수 URL(http...)만 남겨.\n" +
+    "   - 쉼표(,)로 구분된 여러 링크가 있다면 각각 새로운 줄에 배치해.\n\n" +
+    
+    "**[출력 예시]**\n" +
+    "입력: '- 로그인 API 구현, 지라: http://jira..., 컨플루언스: http://wiki...'\n" +
+    "출력 duties: '- 로그인 API 구현\\nhttp://jira...\\nhttp://wiki...'\n\n" +
+
+    "**4. JSON 필드**: isRelevant(boolean), name(string), duties(string), backlog(string).";
+
+  const options = {
+    method: "post",
+    headers: { "Authorization": "Bearer " + OPENAI_API_KEY, "Content-Type": "application/json" },
+    payload: JSON.stringify({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: text }
+      ],
+      response_format: { type: "json_object" }
+    }),
+    muteHttpExceptions: true
+  };
+
+  try {
+    const res = UrlFetchApp.fetch(url, options);
+    const content = JSON.parse(res.getContentText()).choices[0].message.content;
+    const result = JSON.parse(content);
+
+    // AI가 가끔 줄바꿈을 \n 대신 실제로 줄을 바꿔서 줄 수 있으므로 정리
+    const duties = (result.duties || '- 내용 없음').trim();
+    const backlog = (result.backlog || '-').trim();
+
+    // 안전장치: AI가 false를 줘도, 내용에 '완료'나 '-' 같은 키워드가 있으면 강제로 true로 바꿈
+    // "파싱실패"를 막기 위해 text 길이가 충분히 길면(예: 15자 이상) 업무보고로 간주
+    const fallbackRelevant = text.includes('완료') || text.includes('업무') || text.length > 15;
+
+    return {
+      isRelevant: result.isRelevant === true || fallbackRelevant,
+      name: result.name || "미기입",
+      duties: duties,
+      backlog: backlog
+    };
+  } catch (e) {
+    Logger.log(`[AI 파싱 에러] ${e.message}`);
+    // 에러 발생 시 "파싱실패"라고 뜨는 대신 원본 텍스트를 duties에 넣어서라도 보여줌
+    return { 
+        isRelevant: true, 
+        name: '파싱오류(원본)', 
+        duties: text, // 원본 텍스트라도 보여주기 위해
+        backlog: '-' 
+    };
+  }
+}
+
+/**
+ * 일반 텍스트 Slack 메시지 전송
+ * @param {string} channelId - Slack channel ID
+ * @param {string} text - Message body
+ */
+function postToSlack(channelId, text) {
+  UrlFetchApp.fetch('https://slack.com/api/chat.postMessage', {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + SLACK_TOKEN },
+    payload: JSON.stringify({ channel: channelId, text: text }),
+    muteHttpExceptions: true
+  });
+}
+
+/**
+ * Block Kit 형식의 Slack 메시지 전송 (리치 포맷)
+ * @param {string} channelId - Slack channel ID
+ * @param {string} fallbackText - 알림에 표시될 plain text
+ * @param {Array} blocks - Slack Block Kit blocks 배열
+ */
+function postBlocksToSlack(channelId, fallbackText, blocks) {
+  UrlFetchApp.fetch('https://slack.com/api/chat.postMessage', {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + SLACK_TOKEN },
+    payload: JSON.stringify({
+      channel: channelId,
+      text: fallbackText,
+      blocks: blocks
+    }),
+    muteHttpExceptions: true
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 전일 업무 브리핑 (Slack Block Kit)
+// ---------------------------------------------------------------------------
+
+/**
+ * 전일 업무 브리핑 생성 후 Slack에 Block Kit으로 포스팅
+ */
+function createAndPostDailyBriefing() {
+  const oldest = getOldestTimestampSince7amKst();
+  const aggregated = collectAllChannelsData(oldest);
+  const totalCount = aggregated.channels.reduce(function (sum, ch) { return sum + ch.members.length; }, 0);
+  if (totalCount === 0) return;
+
+  const summaries = callOpenAIThreeSummaries(aggregated);
+  const blocks = buildBriefingBlocks(aggregated, totalCount, summaries);
+
+  if (BRIEFING_CHANNEL_ID) {
+    postBlocksToSlack(BRIEFING_CHANNEL_ID, '전일 업무 브리핑', blocks);
+  }
+  return blocks;
+}
+
+/**
+ * Block Kit 블록 배열 생성: 헤더 + 요약 + 채널별 멤버 섹션
+ * @param {{ dateStr: string, channels: Array }} aggregated
+ * @param {number} totalCount
+ * @param {string[]} summaries
+ * @returns {Array} - Slack blocks
+ */
+function buildBriefingBlocks(aggregated, totalCount, summaries) {
+  const dateLabel = Utilities.formatDate(new Date(), TZ, DATE_BRIEFING_FORMAT);
+  const blocks = [];
+
+  blocks.push({
+    type: 'header',
+    text: { type: 'plain_text', text: ':clipboard: 전일 업무 브리핑 | ' + dateLabel, emoji: true }
+  });
+
+  blocks.push({
+    type: 'section',
+    text: { type: 'mrkdwn', text: '어제 총 ' + totalCount + '건의 업무가 보고되었습니다.' }
+  });
+
+  blocks.push({ type: 'divider' });
+
+  blocks.push({
+    type: 'section',
+    text: {
+      type: 'mrkdwn',
+      text: '*핵심 3줄 요약*\n'
+        + '1. ' + (summaries[0] || '-') + '\n'
+        + '2. ' + (summaries[1] || '-') + '\n'
+        + '3. ' + (summaries[2] || '-')
+    }
+  });
+
+  blocks.push({ type: 'divider' });
+
+  blocks.push({
+    type: 'section',
+    text: { type: 'mrkdwn', text: '*:bar_chart: 셀 구성원별 상세 업무 현황*' }
+  });
+
+  aggregated.channels.forEach(function (ch) {
+    if (ch.members.length === 0) return;
+
+    blocks.push({
+      type: 'context',
+      elements: [{ type: 'mrkdwn', text: ':file_folder: *' + ch.name.toUpperCase() + '* 팀' }]
+    });
+
+    ch.members.forEach(function (m) {
+      const memberBlock = formatMemberBlock(m);
+      blocks.push({
+        type: 'section',
+        text: { type: 'mrkdwn', text: memberBlock }
+      });
+    });
+
+    blocks.push({ type: 'divider' });
+  });
+
+  return blocks;
+}
+
+/**
+ * [수정됨] Slack 메시지 포맷터(한 명분의 라인 생성)
+ * - 일반 업무: 앞에 '• ' 붙임
+ * - 링크(http): 앞에 불렛 없이 공백('    ')만 붙여서 들여쓰기 처리
+ */
+
+function formatMemberBlock(m) {
+  const lines = ['*' + m.name + '*'];
+  
+  // 빈 줄이나 의미 없는 문자 제거 헬퍼
+  const clean = (txt) => (txt === '-' || !txt) ? [] : txt.split(/\r?\n/).filter(line => line.trim() !== '');
+  
+  // 포맷팅 로직
+  const processLines = (textArray) => {
+    textArray.forEach(line => {
+      let trimmed = line.trim();
+      
+      // 혹시 이미 붙어있는 불렛 기호 제거
+      trimmed = trimmed.replace(/^[-•*]\s*/, '');
+
+      if (trimmed.startsWith('http')) {
+        // [링크인 경우] 불렛 없이 들여쓰기(공백 4칸)만 적용
+        lines.push(`    ${trimmed}`); 
+      } else {
+        // [일반 텍스트인 경우] 업무/백로그 구분 없이 모두 불렛(•) 적용
+        lines.push(` • ${trimmed}`);
+      }
+    });
+  };
+
+  const duties = clean(m.duties);
+  if (duties.length > 0) {
+    lines.push('_완료한 업무:_');
+    processLines(duties);
+  }
+
+  const backlog = clean(m.backlog);
+  if (backlog.length > 0) {
+    lines.push('_백로그:_');
+    processLines(backlog);
+  }
+  
+  return lines.join('\n');
+}
+
+/**
+ * 줄바꿈으로 분리된 문자열에서 bullet prefix를 정리하고 빈 줄 제거
+ * @param {string} text
+ * @returns {string[]}
+ */
+function cleanBullets(text) {
+  if (!text || text.trim() === '-' || text.trim() === '') return [];
+  return text
+    .split(/\r?\n/)
+    .map(function (s) { return s.trim().replace(/^[-•*]\s*/, ''); })
+    .filter(function (s) { return s.length > 0; });
+}
+
+/**
+ * AI에게 전체 데이터를 주고 핵심 3줄 요약만 JSON으로 반환
+ * @param {{ dateStr: string, channels: Array }} aggregated
+ * @returns {string[]} - 길이 3 배열
+ */
+function callOpenAIThreeSummaries(aggregated) {
+  const systemPrompt =
+    'You are a daily report summarizer. Given structured data from 5 Slack channels, ' +
+    'output exactly 3 short summary sentences in Korean for "핵심 3줄 요약". ' +
+    'Each sentence should capture one key outcome, decision, or risk (e.g. project progress, meeting result, delay reason). ' +
+    'Output only a JSON object with a single key "summaries" (array of exactly 3 strings). No other text.';
+
+  const options = {
+    method: 'post',
+    headers: { Authorization: 'Bearer ' + OPENAI_API_KEY, 'Content-Type': 'application/json' },
+    payload: JSON.stringify({
+      model: 'gpt-4o',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: JSON.stringify(aggregated, null, 2) }
+      ],
+      response_format: { type: 'json_object' }
+    }),
+    muteHttpExceptions: true
+  };
+
+  try {
+    const res = UrlFetchApp.fetch(OPENAI_CHAT_URL, options);
+    const raw = res.getContentText();
+    const parsed = JSON.parse(raw);
+    const content = parsed.choices && parsed.choices[0] && parsed.choices[0].message && parsed.choices[0].message.content;
+    if (!content) return ['', '', ''];
+    const result = JSON.parse(content);
+    const arr = result.summaries && Array.isArray(result.summaries) ? result.summaries : [];
+    return [arr[0] || '', arr[1] || '', arr[2] || ''];
+  } catch (e) {
+    return ['', '', ''];
+  }
+}
