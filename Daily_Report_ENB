@@ -4,16 +4,57 @@
  */
 
 /** Settings */
-const SLACK_TOKEN = '';
-const OPENAI_API_KEY = '';
-const FOLDER_ID = '';
+const SLACK_TOKEN = 'xoxb-9006369456002-10483866333461-HAjvb5WFKRWu4DLuQvNZ3n4c';
+const OPENAI_API_KEY = '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';
+const FOLDER_ID = '1ThFpLlRtscvuPB2IUqRXJpZcrnHTD87q';
 
 const CHANNELS = [
-  { id: '', name: 'enb_platoon' }
+  { id: 'C0ADVR7BNLF', name: 'enb_platoon' }
 ];
 
+const TARGET_MEMBERS = {
+  'U075QU6C8CA':'강용석',
+  'U09UM9TL7RR':'강상인',
+  'U075QU3L8PL':'고재용',
+  'U08121KA8UE':'곽진호',
+  'U0A7ZNA3GGM':'김대관',
+  'U08QZ1R50BW':'김두호',
+  'U0763JDP665':'김우현',
+  'U092CCMS8Q3':'김지원',
+  'U09B3JGBZC1':'김진호',
+  'U0875KBHBGE':'김태유',
+  'U075QQVDFV1':'나형선',
+  'U089KN5LLR2':'박순혁',
+  'U08NBDXK67P':'박영국',
+  'U0A5ZSW8H52':'박유원',
+  'U07J2CNL360':'배수민',
+  'U0875KBQ73Q':'서영민',
+  'U07LDAN8RMK':'설정우',
+  'U08MVTYLPBK':'송창원',
+  'U076DN2PRA4':'신재하',
+  'U0A5ZSVE4SY':'신희송',
+  'U0A5ZSYU3J8':'양아현',
+  'U076DN2H9KJ':'엄재식',
+  'U07ALT3A6T0':'우현철',
+  'U0A5PTJRPFD':'유지원',
+  'U09P63ALASY':'윤순호',
+  'U075KN4SD5Y':'이규백',
+  'U08QSU2J7M5':'이득환',
+  'U08121KG6JJ':'임수빈',
+  'U07HGNYFGLA':'장지훈',
+  'U076DN1DAPJ':'전창환',
+  'U084A69333K':'주창륜',
+  'U075E9KHH6G':'최은지',
+  'U092XKW7E9Y':'최창훈',
+  'U07H26XKCBH':'하지민',
+  'U08Q8DFA7B3':'한동균',
+  'U075QQT5G2X':'한재현',
+  'U08VARJECTC':'한태경',
+  'U075DAJ08BY':'황규종'
+};
+
 // 브리핑을 전송할 채널 (보통 리포트 채널과 동일하게 설정하거나, 매니저 채널 ID 입력)
-const BRIEFING_CHANNEL_ID = ''; 
+const BRIEFING_CHANNEL_ID = 'C0ADVR7BNLF'; 
 
 /** Layout constants */
 const TZ = 'GMT+9';
@@ -41,7 +82,7 @@ const MORNING_MESSAGE = [
     "type": "section",
     "text": {
       "type": "mrkdwn",
-      "text": "*이름*: OOO\n\n*오늘의 업무*\n• 업무 1 개요, <https://''.atlassian.net/...|컨플루언스 링크>, <https://''.atlassian.net/...|지라 링크>\n• 업무 2 개요, <https://''.atlassian.net/...|컨플루언스 링크>, <https://''.atlassian.net/...|지라 링크>"
+      "text": "*이름*: OOO\n\n*오늘의 업무*\n• 업무 1 개요, <https://waiker.atlassian.net/...|컨플루언스 링크>, <https://waiker.atlassian.net/...|지라 링크>\n• 업무 2 개요, <https://waiker.atlassian.net/...|컨플루언스 링크>, <https://waiker.atlassian.net/...|지라 링크>"
     }
   }
 ];
@@ -55,7 +96,7 @@ const EVENING_MESSAGE = [
     "type": "section",
     "text": {
       "type": "mrkdwn",
-      "text": "*이름*: OOO\n\n*완료한 업무*\n• 업무 1 설명, <https://''.atlassian.net/...|컨플루언스 링크>, <https://''.atlassian.net/...|지라 링크>\n• 업무 2 설명\n\n*백로그*\n• 업무 1 요약, <https://''.atlassian.net/...|컨플루언스 링크>, <https://''.atlassian.net/...|지라 링크>"
+      "text": "*이름*: OOO\n\n*완료한 업무*\n• 업무 1 설명, <https://waiker.atlassian.net/...|컨플루언스 링크>, <https://waiker.atlassian.net/...|지라 링크>\n• 업무 2 설명\n\n*백로그*\n• 업무 1 요약, <https://waiker.atlassian.net/...|컨플루언스 링크>, <https://waiker.atlassian.net/...|지라 링크>"
     }
   }
 ];
@@ -113,6 +154,73 @@ function eveningDutyPrompt() {
   });
 }
 
+/**
+ * [신규] 매일 밤 23시에 실행: 미제출자 확인 및 멘션 알림
+ * - 평일(월~금)에만 동작
+ */
+/**
+ * [수정됨] 매일 밤 23시에 실행: 미제출자 확인 및 멘션 알림
+ * - TARGET_MEMBERS의 값(Slack ID)을 기준으로 체크하도록 수정
+ */
+function sendUnsubmittedReminder() {
+  // 1. 주말 체크 (주말 밤에는 알림 끄기)
+  const dayOfWeek = Utilities.formatDate(new Date(), TZ, 'EEE');
+  if (dayOfWeek === 'Sat' || dayOfWeek === 'Sun') {
+    Logger.log('주말(' + dayOfWeek + ') 밤이므로 미제출 알림을 보내지 않습니다.');
+    return;
+  }
+
+  const oldest = getOldestTimestampSince7amKst();
+  
+  // 2. 현재까지 제출된 데이터 수집
+  const aggregated = collectAllChannelsData(oldest);
+  
+  // 3. 제출한 멤버들의 ID 목록 추출
+  const submittedIds = new Set();
+  aggregated.channels.forEach(ch => {
+    ch.members.forEach(m => submittedIds.add(m.id));
+  });
+
+  // 4. 미제출자 찾기 (수정된 부분)
+  const missingMembers = [];
+  
+  // [중요 수정] TARGET_MEMBERS가 {이메일: ID} 형식이므로, 
+  // Object.keys(ID)를 사용해야 합니다.
+  Object.keys(TARGET_MEMBERS).forEach(targetId => {
+    if (!submittedIds.has(targetId)) {
+      missingMembers.push(`<@${targetId}>`);
+    }
+  });
+
+  // 5. 알림 전송 (Block Kit)
+  if (missingMembers.length > 0) {
+    const mentions = missingMembers.join(' '); 
+    const blocks = [
+      {
+        "type": "header",
+        "text": { "type": "plain_text", "text": "일일 업무 보고 제출 재알림" }
+      },
+      {
+        "type": "section",
+        "text": { "type": "mrkdwn", "text": "금일 업무 보고를 작성해주시기 바랍니다.\n확인 후 작성을 부탁드립니다." }
+      },
+      { "type": "divider" },
+      {
+        "type": "section",
+        "text": { "type": "mrkdwn", "text": `*대상자:*\n${mentions}` }
+      },
+      {
+        "type": "context",
+        "elements": [{ "type": "mrkdwn", "text": "이미 작성하셨다면 형식이 올바른지 확인해주세요." }]
+      }
+    ];
+
+    postBlocksToSlack(BRIEFING_CHANNEL_ID, "업무 보고 제출 재알림", blocks);
+    Logger.log(`미제출자 알림 전송 완료: ${mentions}`);
+  } else {
+    Logger.log('모든 대상자가 업무 보고를 제출했습니다.');
+  }
+}
 
 // ---------------------------------------------------------------------------
 // 3. Main Execution Function (핵심 기능)
@@ -121,18 +229,34 @@ function eveningDutyPrompt() {
 /**
  * [핵심] 시트 생성 + AI 3줄 요약 + Slack 브리핑 전송
  * 트리거 설정을 이 함수로 하시면 됩니다. (예: 매일 오후 10시)
+ * [수정됨] 새벽 실행: 데이터가 있으면 무조건 리포트 생성 (주말/평일 무관)
  */
 function runDailyReportAndBriefing() {
+  // 어제 날짜 계산 (새벽 실행 기준)
+  const now = new Date();
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000); 
   const oldest = getOldestTimestampSince7amKst();
-  const folder = DriveApp.getFolderById(FOLDER_ID);
   
   // 1. 데이터 수집
   const aggregated = collectAllChannelsData(oldest);
+  
+  // [핵심] 수집된 데이터가 하나도 없으면 종료
+  const totalCount = aggregated.channels.reduce((sum, c) => sum + c.members.length, 0);
+  
+  if (totalCount === 0) {
+    Logger.log('수집된 업무 보고가 0건이므로 리포트를 생성하지 않고 종료합니다.');
+    return;
+  }
+
+  Logger.log(`총 ${totalCount}건의 데이터가 발견되어 리포트 생성을 시작합니다.`);
+  const folder = DriveApp.getFolderById(FOLDER_ID);
 
   // 2. 시트 생성
   aggregated.channels.forEach(ch => {
-    const dateStr = aggregated.dateStr;
+    // 파일명 날짜: 어제 날짜 사용
+    const dateStr = Utilities.formatDate(yesterday, TZ, DATE_FORMAT);
     const fileName = `${dateStr}_${ch.name}`;
+    
     const ss = SpreadsheetApp.create(fileName);
     const sheet = ss.getSheets()[0];
     DriveApp.getFileById(ss.getId()).moveTo(folder);
@@ -151,9 +275,6 @@ function runDailyReportAndBriefing() {
   });
 
   // 3. Slack 브리핑 전송
-  const totalCount = aggregated.channels.reduce((sum, c) => sum + c.members.length, 0);
-  if (totalCount === 0) return;
-
   const summaries = callOpenAIThreeSummaries(aggregated);
   const blocks = buildBriefingBlocks(aggregated, totalCount, summaries);
   
@@ -172,22 +293,26 @@ function runDailyReportAndBriefing() {
  * - 최신 메시지부터 순서대로 AI에게 물어봐서 "업무 보고가 맞다"고 한 첫 번째 메시지를 채택합니다.
  * - 잡담("제출함", "수정함")이 최신이어도 건너뛰고 진짜 보고서를 찾아냅니다.
  */
+/**
+ * [수정됨] 스마트 수집 로직 (키워드 우선순위 적용)
+ * 1순위: '완료한 업무' 텍스트가 포함된 메시지 우선 채택
+ * 2순위: (없을 경우) 가장 최신 메시지 중 AI가 인정한 것 채택
+ */
 function collectAllChannelsData(oldest) {
   const now = new Date();
-  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const dateStr = Utilities.formatDate(new Date(), TZ, DATE_FORMAT);
   const channels = [];
 
-  Logger.log('=== 스마트 데이터 수집 시작 ===');
+  Logger.log('=== 스마트 데이터 수집 시작 (키워드 우선) ===');
 
   CHANNELS.forEach((ch, index) => {
     if (index > 0) Utilities.sleep(400);
     
-    // 1. 해당 채널의 모든 메시지 가져오기 (7시 이후)
+    // 1. 메시지 가져오기
     const messages = fetchSlackHistory(ch.id, oldest);
     Logger.log(`[${ch.name}] 총 메시지 수: ${messages.length}`);
 
-    // 2. 메시지를 유저별로 그룹화 (User ID -> [메시지1, 메시지2, ...])
+    // 2. 유저별 그룹화
     const userMessagesMap = {};
     messages.forEach(msg => {
       if (!userMessagesMap[msg.user]) {
@@ -198,37 +323,52 @@ function collectAllChannelsData(oldest) {
 
     const members = [];
 
-    // 3. 각 유저별로 루프를 돌며 "유효한 보고서" 찾기
+    // 3. 각 유저별로 '진짜 보고서' 찾기
     Object.keys(userMessagesMap).forEach(userId => {
-      const userMsgs = userMessagesMap[userId]; // 이 유저가 쓴 글들 (최신순)
+      const userMsgs = userMessagesMap[userId]; // 최신순 정렬됨
       
-      Logger.log(` -> 사용자(${userId}) 메시지 ${userMsgs.length}개 검사 시작`);
+      Logger.log(` -> 사용자(${userId}) 메시지 ${userMsgs.length}개 검사`);
 
-      // 최신 글부터 하나씩 검사
-      for (let i = 0; i < userMsgs.length; i++) {
-        const msg = userMsgs[i];
+      // [핵심 변경 1] 키워드("완료한 업무" 등)가 포함된 메시지를 먼저 찾습니다.
+      let targetMsg = userMsgs.find(msg => /완료\s*한\s*업무|완료\s*업무|완료한업무/.test(msg.text));
+      let found = false;
+
+      // [핵심 변경 2] 키워드 메시지가 있다면 우선적으로 AI 파싱 시도
+      if (targetMsg) {
+        Logger.log(`    => [키워드 발견] "완료한 업무" 포함 메시지 우선 검사`);
+        const extracted = callOpenAIParser(targetMsg.text);
         
-        // AI 파서 호출
-        const extracted = callOpenAIParser(msg.text);
-
         if (extracted.isRelevant) {
-          // ✅ 유효한 보고서를 찾음!
-          Logger.log(`    => [채택] 메시지 발견! (내용: ${msg.text.substring(0, 20)}...)`);
-          
-          const time = Utilities.formatDate(new Date(msg.ts * 1000), TZ, TIME_FORMAT);
-          members.push({
-            name: String(extracted.name),
-            duties: String(extracted.duties),
-            backlog: String(extracted.backlog),
-            time: time
-          });
-          
-          // 이 유저의 보고서를 찾았으니, 더 과거의 메시지는 볼 필요 없음 (루프 종료)
-          break; 
+          pushMemberData(members, targetMsg, extracted);
+          found = true;
+          Logger.log(`    => [채택] 키워드 메시지 채택 완료`);
         } else {
-          // ❌ 업무 보고가 아님 (잡담 등) -> 다음 메시지(조금 더 예전 글) 검사
-          Logger.log(`    => [패스] 업무 보고 아님 (내용: ${msg.text.substring(0, 20)}...)`);
+          Logger.log(`    => [반려] 키워드는 있었으나 AI가 업무 보고가 아니라고 판단함.`);
         }
+      }
+
+      // [핵심 변경 3] 키워드 메시지로 해결이 안 됐다면, 기존 방식(최신순 탐색)으로 Fallback
+      if (!found) {
+        if (targetMsg) Logger.log(`    => [재검사] 일반 모드로 최신 글부터 다시 탐색합니다.`);
+        
+        for (let i = 0; i < userMsgs.length; i++) {
+          const msg = userMsgs[i];
+          
+          // 아까 검사했다가 실패한 키워드 메시지는 중복 검사 생략
+          if (targetMsg && msg.ts === targetMsg.ts) continue;
+
+          const extracted = callOpenAIParser(msg.text);
+          if (extracted.isRelevant) {
+             Logger.log(`    => [일반 채택] 최신 메시지 발견 (내용: ${msg.text.substring(0, 20)}...)`);
+             pushMemberData(members, msg, extracted);
+             found = true;
+             break; // 찾았으니 종료
+          }
+        }
+      }
+      
+      if (!found) {
+         Logger.log(`    => [실패] 유효한 업무 보고를 찾지 못함`);
       }
     });
 
@@ -236,6 +376,18 @@ function collectAllChannelsData(oldest) {
   });
 
   return { dateStr: dateStr, channels: channels };
+}
+
+// [내부 헬퍼 함수] 멤버 데이터 배열에 추가하는 로직 (중복 코드 방지)
+function pushMemberData(membersArray, msg, extracted) {
+  const time = Utilities.formatDate(new Date(msg.ts * 1000), TZ, TIME_FORMAT);
+  membersArray.push({
+    id: msg.user,
+    name: String(extracted.name),
+    duties: String(extracted.duties),
+    backlog: String(extracted.backlog),
+    time: time
+  });
 }
 
 function fetchSlackHistory(channelId, oldest) {
@@ -300,8 +452,8 @@ function callOpenAIParser(text) {
     "너는 '데이터 정제 및 추출 전문가'야. 입력된 텍스트에서 업무 보고 데이터를 구조화된 JSON으로 추출해.\n\n" +
     
     "**1. 기본 규칙 (isRelevant)**:\n" +
-    "   - 업무와 관련된 내용(프로젝트명, 개발, 배포, 회의 등)이 포함되어 있으면 무조건 **true**.\n" +
-    "   - 단순 잡담('퇴근합니다', '안녕하세요')인 경우에만 false.\n\n" +
+    "   - '완료된 업무'라는 어휘가 있고 업무와 관련된 내용(프로젝트명, 개발, 배포, 회의 등)이 포함되어 있으면 **true**.\n" +
+    "   - 단순 잡담('퇴근합니다', '안녕하세요')인 경우나 '오늘의 업무'가 들어간 경우 false.\n\n" +
 
     "**2. 데이터 추출 규칙**:\n" +
     "   - **name**: 텍스트의 첫 번째 줄을 이름으로 간주하거나 '이름: OOO' 패턴에서 추출. 없으면 '미기입'.\n" +
@@ -407,18 +559,18 @@ function buildBriefingBlocks(aggregated, totalCount, summaries) {
   const dateLabel = Utilities.formatDate(new Date(), TZ, DATE_BRIEFING_FORMAT);
   const blocks = [];
 
+  // 1. 헤더
   blocks.push({
     type: 'header',
     text: { type: 'plain_text', text: ':clipboard: 전일 업무 브리핑 | ' + dateLabel, emoji: true }
   });
-
   blocks.push({
     type: 'section',
     text: { type: 'mrkdwn', text: '어제 총 ' + totalCount + '건의 업무가 보고되었습니다.' }
   });
-
   blocks.push({ type: 'divider' });
 
+  // 2. 3줄 요약
   blocks.push({
     type: 'section',
     text: {
@@ -429,15 +581,35 @@ function buildBriefingBlocks(aggregated, totalCount, summaries) {
         + '3. ' + (summaries[2] || '-')
     }
   });
-
   blocks.push({ type: 'divider' });
   blocks.push({ type: 'section', text: { type: 'mrkdwn', text: '*:bar_chart: 상세 업무 현황*' } });
 
+  // 3. 채널별 본문 (블록 개수 제한 회피를 위해 채널별로 텍스트를 합칩니다)
   aggregated.channels.forEach(ch => {
     if (ch.members.length === 0) return;
+
+    const channelHeader = `*:file_folder: ${ch.name.toUpperCase()} 팀*`;
+    let channelBody = "";
+
     ch.members.forEach(m => {
-      blocks.push({ type: 'section', text: { type: 'mrkdwn', text: formatMemberBlock(m) } });
+      // 각 멤버의 내용을 텍스트로 누적
+      channelBody += formatMemberBlock(m) + "\n\n";
     });
+
+    // 텍스트가 너무 길어지는 것을 방지 (Slack 섹션당 3000자 제한 안전장치)
+    if (channelBody.length > 2900) {
+      channelBody = channelBody.substring(0, 2900) + "...(내용 생략됨)";
+    }
+
+    // 채널 하나당 1개의 블록만 생성
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `${channelHeader}\n${channelBody}`
+      }
+    });
+
     blocks.push({ type: 'divider' });
   });
 
