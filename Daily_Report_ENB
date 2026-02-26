@@ -1,91 +1,75 @@
 /**
  * Daily Report: Slack scrape -> AI parse -> Google Sheet + Slack Briefing
- * Single Channel Version (enb_platoon) with Link Preservation & Block Kit
+ * [ENB 전용 버전 + 전사 표준 양식 적용]
+ * - 접근 권한 및 대상자: ENB 폐쇄적 구조 유지
+ * - 구글 시트 및 AI 프롬프트: 전사 표준(전날 한 일/오늘 할 일/고민) 강제 적용
  */
 
-/** Settings */
-const SLACK_TOKEN = 'xoxb-9006369456002-10483866333461-HAjvb5WFKRWu4DLuQvNZ3n4c';
-const OPENAI_API_KEY = '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';
-const FOLDER_ID = '1ThFpLlRtscvuPB2IUqRXJpZcrnHTD87q';
+/** Settings (ENB 전용 설정) */
+const SLACK_TOKEN = '';
+const OPENAI_API_KEY = '';
+const FOLDER_ID = '';
 
 const CHANNELS = [
-  { id: 'C0ADVR7BNLF', name: 'enb_platoon' }
+  { id: '', name: 'enb_platoon' }
 ];
 
 const TARGET_MEMBERS = {
-  'U09UM9TL7RR':'강상인',
-  'U08NBDXK67P':'박영국',
-  'U0A5ZSW8H52':'박유원',
-  'U0875KBQ73Q':'서영민',
-  'U0A5ZSVE4SY':'신희송',
-  'U0A5ZSYU3J8':'양아현',
-  'U07ALT3A6T0':'우현철',
-  'U0A5PTJRPFD':'유지원',
-  'U075E9KHH6G':'최은지',
-  'U092XKW7E9Y':'최창훈'
+};
+
+/** =========================
+ * Platoon & Squad 설정 (전사 AI 프롬프트 호환을 위해 유지)
+ * ========================= */
+const PLATOON_CONFIG = {
+  "MS": { title: "■ 모듈화 솔루션 (MS)", squads: ["DT", "WG", "AIS"] },
+  "AG": { title: "■ 에이전트 (AG)", squads: ["MI", "WM", "ATS"] },
+  "FS": { title: "■ 플래그십 스토어 (FS) TF", squads: ["DS", "CXA"] },
+  "ENB": { title: "■ 사업지원 (ENB)", squads: ["A", "GA", "COMMS", "COMP", "ITI", "SC", "FIN", "FUND", "GOV", "HR", "LAW"] },
+  "ERROR": { title: "■ 공통", squads: ["공통"] }
 };
 
 /** =========================
  * Jira Settings (Hardcoded)
  * ========================= */
-const JIRA_BASE_URL = 'https://waiker.atlassian.net';
-const JIRA_ORG_ID = 'c566ac18-j916-1397-j0db-0407c8002a19';
-const JIRA_EMAIL = 'ra@waiker.ai';  // Jira API token 발급한 계정 이메일
-const JIRA_API_TOKEN = 'ATATT3xFfGF0tkeki_WLYAG5vlI03EmB6r5DxRjLmRVHGTw6F2Wi0ED6QADUtslNeqB04I3_FyUpgABK7jautgkdyka1GzyLx16Jjiz1QkHoNaciwRGrph4zjjuIu1b3Uxu-z07_Be6c8SBWGQ031JjrfdMaYjvT83TNtRtZFV60R9wmO5yFFb0=3A8D87DA';
+const JIRA_BASE_URL = '';
+const JIRA_ORG_ID = '';
+const JIRA_EMAIL = '';
+const JIRA_API_TOKEN = '';
 
-// “기한 다가오는” 기준(오늘~N일)
 const JIRA_DUE_SOON_DAYS = 1;
-// “기한 지난” 기준(최근 N일만)
 const JIRA_OVERDUE_LOOKBACK_DAYS = 7;
 
-/**
- * Slack <-> Jira accountId 매핑 (하드코딩)
- * - 아래는 네가 준 표를 그대로 옮긴 형태
- */
+/** Slack <-> Jira accountId 매핑 (ENB 멤버 전용) */
 const ID_MAP = [
-  { slack: 'U09UM9TL7RR', jira: '712020:6b88aef2-34d4-4625-bb9d-08e9823a9589', name: '강상인' },
-  { slack: 'U08NBDXK67P', jira: '712020:f1a53019-3432-4d11-88ef-e40cf75b00dd', name: '박영국' },
-  { slack: 'U0A5ZSW8H52', jira: '712020:01c03b63-1a0f-4aff-ba02-4229e8ad74d5', name: '박유원' },
-  { slack: 'U0875KBQ73Q', jira: '712020:07411156-fcf7-4b0d-95f0-0953912ad266', name: '서영민' },
-  { slack: 'U0A5ZSVE4SY', jira: '712020:8a024903-7970-4529-a50a-a03af20319f6', name: '신희송' },
-  { slack: 'U0A5ZSYU3J8', jira: '712020:43d63fe1-6040-4b6b-9ab8-0fbaf0619492', name: '양아현' },
-  { slack: 'U07ALT3A6T0', jira: '712020:64f44213-af7c-4b45-b246-68b5db4ed1e1', name: '우현철' },
-  { slack: 'U0A5PTJRPFD', jira: '712020:79f99304-d0fd-4dcd-8ba6-99512d89157a', name: '유지원' },
-  { slack: 'U075E9KHH6G', jira: '712020:36bec40b-5ca6-4506-acaf-ec8a01515208', name: '최은지' },
-  { slack: 'U092XKW7E9Y', jira: '712020:b7cfce0f-4d68-49f0-a792-c7c1a5f478fd', name: '최창훈' }
 ];
 
-
-// 브리핑을 전송할 채널 (보통 리포트 채널과 동일하게 설정하거나, 매니저 채널 ID 입력)
 const BRIEFING_CHANNEL_ID = 'C0ADVR7BNLF'; 
 
-/** Layout constants */
+/** Layout constants (전사 시트 포맷 적용) */
 const TZ = 'GMT+9';
 const DATE_FORMAT = 'yyyyMMdd';
 const DATE_BRIEFING_FORMAT = 'M월 d일 (EEE)';
 const TIME_FORMAT = 'HH:mm:ss';
 const COLLECTION_START_HOUR_KST = 7;
-const NUM_COLUMNS = 5;
-const HEADER_ROW = ['No.', '작성시간', '이름', '오늘 완료한 업무', '백로그'];
+const NUM_COLUMNS = 6;
+const HEADER_ROW = ['No.', '작성시간', '이름', '전날 한 일', '오늘 할 일', '고민했던 부분과 해결한 결과'];
 
-/** Regex */
-const BULLET_LINE_REGEX = /^(?:[-•*]\s*|\d+\.\s*)/m;
 const OPENAI_CHAT_URL = 'https://api.openai.com/v1/chat/completions';
 
 // ---------------------------------------------------------------------------
-// Block Kit 메시지 정의
+// Block Kit 메시지 정의 (전사 포맷 적용)
 // ---------------------------------------------------------------------------
 
 const MORNING_MESSAGE = [
   {
     "type": "header",
-    "text": { "type": "plain_text", "text": "일일 업무 보고(출근)", "emoji": true }
+    "text": { "type": "plain_text", "text": "일일 업무 공유를 작성해주세요", "emoji": true }
   },
   {
     "type": "section",
     "text": {
       "type": "mrkdwn",
-      "text": "*이름*: OOO\n\n*오늘의 업무*\n• 업무 1 개요, <https://waiker.atlassian.net/...|컨플루언스 링크>, <https://waiker.atlassian.net/...|지라 링크>\n• 업무 2 개요, <https://waiker.atlassian.net/...|컨플루언스 링크>, <https://waiker.atlassian.net/...|지라 링크>"
+      "text": "*이름*: OOO\n\n*전날 한 일*\n• 업무 1 개요, <https://waiker.atlassian.net/...|컨플루언스 링크>\n• 업무 2 개요, <https://waiker.atlassian.net/...|지라 링크>\n\n*오늘 할 일*\n• 업무 1 개요, <https://waiker.atlassian.net/...|컨플루언스 링크>\n• 업무 2 개요, <https://waiker.atlassian.net/...|지라 링크>\n\n*고민했던 부분과 해결한 결과*\n• 업무 1 개요\n\n<https://waiker.atlassian.net/wiki/spaces/team/pages/2178646164/2.a.1+j|일일 업무 공유 작성 가이드라인>"
     }
   }
 ];
@@ -99,7 +83,7 @@ const EVENING_MESSAGE = [
     "type": "section",
     "text": {
       "type": "mrkdwn",
-      "text": "*이름*: OOO\n\n*완료한 업무*\n• 업무 1 설명, <https://waiker.atlassian.net/...|컨플루언스 링크>, <https://waiker.atlassian.net/...|지라 링크>\n• 업무 2 설명\n\n*백로그*\n• 업무 1 요약, <https://waiker.atlassian.net/...|컨플루언스 링크>, <https://waiker.atlassian.net/...|지라 링크>"
+      "text": "*이름*: OOO\n\n*전날 한 일*\n• 업무 1 개요, <https://waiker.atlassian.net/...|컨플루언스 링크>\n• 업무 2 개요, <https://waiker.atlassian.net/...|지라 링크>\n\n*오늘 할 일*\n• 업무 1 개요\n\n*고민했던 부분과 해결한 결과*\n• 업무 1 요약"
     }
   }
 ];
@@ -124,129 +108,74 @@ function getOldestTimestampSince7amKst() {
 }
 
 // ---------------------------------------------------------------------------
-// 2. 출/퇴근 알림 요청 함수
+// 2. 알림 및 리마인더 (전사 기준 키워드로 변경)
 // ---------------------------------------------------------------------------
 
 function morningDutyPrompt() {
-  // ▼ [주말 알림 방지 추가]
-  // 당일이 토(Sat) 또는 일(Sun)이면 알림을 보내지 않음
   const dayOfWeek = Utilities.formatDate(new Date(), TZ, 'EEE');
   if (dayOfWeek === 'Sat' || dayOfWeek === 'Sun') {
-    Logger.log('주말(' + dayOfWeek + ')이므로 출근 알림을 건너뜁니다.');
+    Logger.log('주말이므로 출근 알림을 건너뜁니다.');
     return;
   }
-  // ▲ [추가 끝]
-
-  CHANNELS.forEach(ch => {
-    postBlocksToSlack(ch.id, "일일 업무 보고(출근) 작성 요청", MORNING_MESSAGE);
-  });
+  CHANNELS.forEach(ch => { postBlocksToSlack(ch.id, "일일 업무 공유 작성 요청", MORNING_MESSAGE); });
 }
 
 function eveningDutyPrompt() {
-  // ▼ [주말 알림 방지 추가]
-  // 당일이 토(Sat) 또는 일(Sun)이면 알림을 보내지 않음
   const dayOfWeek = Utilities.formatDate(new Date(), TZ, 'EEE');
   if (dayOfWeek === 'Sat' || dayOfWeek === 'Sun') {
-    Logger.log('주말(' + dayOfWeek + ')이므로 퇴근 알림을 건너뜁니다.');
+    Logger.log('주말이므로 퇴근 알림을 건너뜁니다.');
     return;
   }
-  // ▲ [추가 끝]
-
-  CHANNELS.forEach(ch => {
-    postBlocksToSlack(ch.id, "일일 업무 보고(퇴근) 작성 요청", EVENING_MESSAGE);
-  });
+  CHANNELS.forEach(ch => { postBlocksToSlack(ch.id, "일일 업무 보고 작성 요청", EVENING_MESSAGE); });
 }
 
-
-/**
- * [완벽 수정됨] 매일 밤 23시에 실행: 미제출자 확인 및 멘션 알림
- * - AI 파싱 결과가 아닌, 슬랙 원본 텍스트에 '완료한 업무' 키워드가 있는지 직접 검사합니다.
- * - 출근 보고만 한 사람은 미제출자로 간주하여 멘션합니다.
- */
 function sendUnsubmittedReminder() {
-  // 1. 주말 체크 (주말 밤에는 알림 끄기)
   const dayOfWeek = Utilities.formatDate(new Date(), TZ, 'EEE');
-  if (dayOfWeek === 'Sat' || dayOfWeek === 'Sun') {
-    Logger.log('주말(' + dayOfWeek + ') 밤이므로 미제출 알림을 보내지 않습니다.');
-    return;
-  }
+  if (dayOfWeek === 'Sat' || dayOfWeek === 'Sun') return;
 
   const oldest = getOldestTimestampSince7amKst();
   const submittedIds = new Set();
 
-  // 2. 슬랙 메시지를 직접 가져와서 '퇴근 보고' 키워드가 있는지 엄격하게 검사
   CHANNELS.forEach(ch => {
     const messages = fetchSlackHistory(ch.id, oldest);
-    
     messages.forEach(msg => {
-      // 메시지 내용에 '완료한 업무' 계열의 단어가 있으면 퇴근 보고를 한 것으로 인정
-      if (msg.text && /완료\s*한\s*업무|완료\s*업무|완료한업무/.test(msg.text)) {
+      // 전사 기준 키워드 검사 적용
+      if (msg.text && /전날\s*한\s*일|오늘\s*할\s*일/i.test(msg.text)) {
         submittedIds.add(msg.user);
       }
     });
   });
 
-  // 3. 미제출자 찾기
   const missingMembers = [];
-  
   Object.keys(TARGET_MEMBERS).forEach(targetId => {
-    if (!submittedIds.has(targetId)) {
-      missingMembers.push(`<@${targetId}>`);
-    }
+    if (!submittedIds.has(targetId)) missingMembers.push(`<@${targetId}>`);
   });
 
-  // 4. 알림 전송 (Block Kit)
   if (missingMembers.length > 0) {
     const mentions = missingMembers.join(' '); 
     const blocks = [
-      {
-        "type": "header",
-        "text": { "type": "plain_text", "text": "일일 업무 보고 제출 재알림" }
-      },
-      {
-        "type": "section",
-        "text": { "type": "mrkdwn", "text": "금일 *퇴근 업무 보고(완료한 업무)*를 아직 작성하지 않으셨습니다.\n확인 후 작성을 부탁드립니다." }
-      },
+      { "type": "header", "text": { "type": "plain_text", "text": "일일 업무 보고 제출 재알림" } },
+      { "type": "section", "text": { "type": "mrkdwn", "text": "금일 *업무 보고*를 아직 작성하지 않으셨습니다.\n확인 후 작성을 부탁드립니다." } },
       { "type": "divider" },
-      {
-        "type": "section",
-        "text": { "type": "mrkdwn", "text": `*대상자:*\n${mentions}` }
-      },
-      {
-        "type": "context",
-        "elements": [{ "type": "mrkdwn", "text": "이미 작성하셨다면 `*완료한 업무*` 라는 키워드가 포함되어 있는지 확인해주세요." }]
-      }
+      { "type": "section", "text": { "type": "mrkdwn", "text": `*대상자:*\n${mentions}` } },
+      { "type": "context", "elements": [{ "type": "mrkdwn", "text": "이미 작성하셨다면 `*전날 한 일*` 또는 `*오늘 할 일*` 이라는 키워드가 포함되어 있는지 확인해주세요." }] }
     ];
-
     postBlocksToSlack(BRIEFING_CHANNEL_ID, "업무 보고 제출 재알림", blocks);
-    Logger.log(`미제출자 알림 전송 완료: ${mentions}`);
-  } else {
-    Logger.log('모든 대상자가 퇴근 업무 보고를 제출했습니다.');
   }
 }
 
 // ---------------------------------------------------------------------------
-// 3. Main Execution Function (핵심 기능)
+// 3. Main Execution Function
 // ---------------------------------------------------------------------------
 
-/**
- * [핵심] 시트 생성 + AI 3줄 요약 + Slack 브리핑 전송
- * 트리거 설정을 이 함수로 하시면 됩니다. (예: 매일 오후 10시)
- * [수정됨] 새벽 실행: 데이터가 있으면 무조건 리포트 생성 (주말/평일 무관)
- */
 function runDailyReportAndBriefing() {
-  // 어제 날짜 계산 (새벽 실행 기준)
   const now = new Date();
   const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000); 
   const oldest = getOldestTimestampSince7amKst();
   
-  // 1. 데이터 수집
   const aggregated = collectAllChannelsData(oldest);
-
-  // 2. Jira 내용 덧붙이기
   attachJiraDueToAggregated_(aggregated);
   
-  // [핵심] 수집된 데이터가 하나도 없으면 종료
   const totalCount = aggregated.channels.reduce((sum, c) => sum + c.members.length, 0);
   
   if (totalCount === 0) {
@@ -254,14 +183,12 @@ function runDailyReportAndBriefing() {
     return;
   }
 
-  Logger.log(`총 ${totalCount}건의 데이터가 발견되어 리포트 생성을 시작합니다.`);
   const folder = DriveApp.getFolderById(FOLDER_ID);
 
-  // 2. 시트 생성
   aggregated.channels.forEach(ch => {
-    // 파일명 날짜: 어제 날짜 사용
-    const dateStr = Utilities.formatDate(yesterday, TZ, DATE_FORMAT);
+    const dateStr = Utilities.formatDate(yesterday, TZ, DATE_FORMAT); // ENB의 새벽 실행 기준 파일명
     const fileName = `${dateStr}_${ch.name}`;
+    if (ch.id === 'jira_only') return;
     
     const ss = SpreadsheetApp.create(fileName);
     const sheet = ss.getSheets()[0];
@@ -271,16 +198,14 @@ function runDailyReportAndBriefing() {
     
     const rows = [];
     ch.members.forEach((m, i) => {
-      rows.push([i + 1, m.time, m.name, m.duties, m.backlog]);
+      // 전사 포맷 시트 데이터 삽입
+      rows.push([i + 1, m.time, m.name, m.yesterday, m.today, m.challenges]);
     });
     
-    if (rows.length > 0) {
-      sheet.getRange(2, 1, rows.length, NUM_COLUMNS).setValues(rows);
-    }
+    if (rows.length > 0) sheet.getRange(2, 1, rows.length, NUM_COLUMNS).setValues(rows);
     applyExcelStyle(sheet);
   });
 
-  // 3. Slack 브리핑 전송
   const summaries = callOpenAIThreeSummaries(aggregated);
   const blocks = buildBriefingBlocks(aggregated, totalCount, summaries);
   
@@ -293,81 +218,40 @@ function runDailyReportAndBriefing() {
  * Jira helpers
  * ========================= */
 
-// Basic Auth header: email:api_token 를 base64 인코딩해서 Authorization: Basic ... 형태로 사용 :contentReference[oaicite:0]{index=0}
 function jiraAuthHeaders_() {
   const token = Utilities.base64Encode(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`);
-  return {
-    Authorization: `Basic ${token}`,
-    Accept: 'application/json',
-    'Content-Type': 'application/json',
-  };
+  return { Authorization: `Basic ${token}`, Accept: 'application/json', 'Content-Type': 'application/json' };
 }
 
-function ymd_(dateObj) {
-  return Utilities.formatDate(dateObj, TZ, 'yyyy-MM-dd');
-}
+function ymd_(dateObj) { return Utilities.formatDate(dateObj, TZ, 'yyyy-MM-dd'); }
+function addDays_(dateObj, days) { return new Date(dateObj.getTime() + days * 24 * 60 * 60 * 1000); }
 
-function addDays_(dateObj, days) {
-  return new Date(dateObj.getTime() + days * 24 * 60 * 60 * 1000);
-}
-
-/**
- * Jira Search (POST): JQL 길어질 수 있으니 POST로 body에 넣는 방식 사용 권장 :contentReference[oaicite:1]{index=1}
- * - /rest/api/3/search/jql 는 jql/startAt/maxResults/fields 등을 지원 :contentReference[oaicite:2]{index=2}
- */
 function jiraSearchIssues_(jql, fields, maxResults, nextPageToken) {
   const url = JIRA_BASE_URL.replace(/\/$/, '') + '/rest/api/3/search/jql';
-
   const payload = {
-    jql: jql,
-    maxResults: maxResults || 50,
+    jql: jql, maxResults: maxResults || 50,
     fields: (fields && fields.length) ? fields : ["summary","assignee","duedate","status","priority","project"]
   };
-
-  // nextPageToken 기반 페이지네이션을 쓰는 경우에만 포함
   if (nextPageToken) payload.nextPageToken = nextPageToken;
 
   const authHeaders = jiraAuthHeaders_();
   const res = UrlFetchApp.fetch(url, {
-    method: 'post',
-    contentType: 'application/json',
-    headers: {
-      'Authorization': authHeaders.Authorization,
-      'Accept': authHeaders.Accept,
-      'Content-Type': authHeaders['Content-Type']
-    },
-    payload: JSON.stringify(payload),
-    muteHttpExceptions: true
+    method: 'post', contentType: 'application/json',
+    headers: { 'Authorization': authHeaders.Authorization, 'Accept': authHeaders.Accept, 'Content-Type': authHeaders['Content-Type'] },
+    payload: JSON.stringify(payload), muteHttpExceptions: true
   });
-
-  const code = res.getResponseCode();
-  const text = res.getContentText();
-
-  if (code < 200 || code >= 300) {
-    throw new Error(`[Jira] search/jql failed: ${code} | ${text}`);
-  }
-
-  return JSON.parse(text); // { issues, isLast, nextPageToken, ... }
+  return JSON.parse(res.getContentText());
 }
 
-
-/**
- * 팀 멤버(accountId) 대상:
- * - 기한 지난 업무(최근 N일)
- * - 기한 다가오는 업무(오늘~N일)
- * 를 Jira에서 조회해서 SlackId별로 묶어 반환
- */
 function fetchJiraDueBucketsBySlackId_() {
   const jiraToSlack = {};
   const accountIds = [];
-
   ID_MAP.forEach(row => {
     if (row.jira) accountIds.push(row.jira);
     if (row.jira && row.slack) jiraToSlack[row.jira] = row.slack;
   });
 
   const assigneeClause = accountIds.map(id => `"${id}"`).join(',');
-
   const today = new Date();
   const todayStr = ymd_(today);
   const dueSoonEndStr = ymd_(addDays_(today, JIRA_DUE_SOON_DAYS));
@@ -379,23 +263,15 @@ function fetchJiraDueBucketsBySlackId_() {
     `(duedate < "${todayStr}" AND duedate >= "${overdueStartStr}")` +
     `) ORDER BY duedate ASC`;
 
-  // [디버깅 추가 1] 쿼리문 확인
-  Logger.log(`[Jira JQL] 요청 쿼리문: ${jql}`);
-
-  const jiraFields = ["summary","duedate","assignee","status","priority","project"];
-
   let issues = [];
   let token = null;
 
   while (true) {
-    const resp = jiraSearchIssues_(jql, jiraFields, 50, token);
+    const resp = jiraSearchIssues_(jql, ["summary","duedate","assignee","status","priority","project"], 50, token);
     issues = issues.concat(resp.issues || []);
     token = resp.nextPageToken;
     if (!token) break; 
   }
-
-  // [디버깅 추가 2] 지라에서 가져온 이슈 개수 확인
-  Logger.log(`[Jira API] 조건에 맞아 조회된 이슈 총 개수: ${issues.length}개`);
 
   const out = {};
   function ensure_(slackId) {
@@ -403,124 +279,67 @@ function fetchJiraDueBucketsBySlackId_() {
     return out[slackId];
   }
 
-  let matchedCount = 0;
-
   issues.forEach(issue => {
     const key = issue.key;
-    const issueFields = issue.fields || {};
-    const summary = issueFields.summary || '';
-    const due = issueFields.duedate; 
-    const assignee = issueFields.assignee;
-    const accountId = assignee && assignee.accountId;
-
-    // [디버깅 추가 3] 조회된 데이터 구조 엿보기 (처음 3개만)
-    if (issues.indexOf(issue) < 3) {
-       Logger.log(` -> [샘플 데이터] 티켓: ${key}, 담당자ID: ${accountId}, 기한: ${due}`);
-    }
-
+    const due = issue.fields?.duedate;
+    const accountId = issue.fields?.assignee?.accountId;
     if (!key || !due || !accountId) return;
 
     const slackId = jiraToSlack[accountId];
-    if (!slackId) {
-       // [디버깅 추가 4] ID 매칭 실패 원인 파악
-       Logger.log(` ⚠️ [매칭 실패] 티켓 ${key}의 담당자 ID(${accountId})가 ID_MAP에 등록되어 있지 않습니다!`);
-       return;
-    }
+    if (!slackId) return;
 
-    const item = {
-      key,
-      summary,
-      due,
-      url: `${JIRA_BASE_URL}/browse/${key}`,
-    };
-
-    if (due < todayStr && due >= overdueStartStr) {
-      ensure_(slackId).overdue.push(item);
-      matchedCount++;
-    } else if (due >= todayStr && due <= dueSoonEndStr) {
-      ensure_(slackId).dueSoon.push(item);
-      matchedCount++;
-    }
+    const item = { key, summary: issue.fields.summary || '', due, url: `${JIRA_BASE_URL}/browse/${key}` };
+    if (due < todayStr && due >= overdueStartStr) ensure_(slackId).overdue.push(item);
+    else if (due >= todayStr && due <= dueSoonEndStr) ensure_(slackId).dueSoon.push(item);
   });
-
-  // [디버깅 추가 5] 최종 처리 결과
-  Logger.log(`[Jira 최종] 슬랙 ID와 성공적으로 매칭되어 보고서에 들어갈 이슈 수: ${matchedCount}개`);
-
   return out;
 }
 
-/**
- * aggregated(슬랙 일일보고 데이터)의 각 멤버 backlog에 Jira due 정보를 추가
- */
-/**
- * aggregated(슬랙 일일보고 데이터)의 각 멤버 backlog에 Jira due 정보를 추가
- * [업데이트] 슬랙 미제출자여도 Jira 이슈가 있으면 리포트에 강제 추가함
- */
 function attachJiraDueToAggregated_(aggregated) {
   try {
     const dueMap = fetchJiraDueBucketsBySlackId_();
     
-    // 1. 슬랙에 보고서를 작성한 멤버들에게 Jira 내용 붙이기
+    // 전사 기준에 따라 Jira 티켓은 '오늘 할 일' 쪽에 붙입니다.
     aggregated.channels.forEach(ch => {
       ch.members.forEach(m => {
         const bucket = dueMap[m.id];
         if (!bucket) return;
 
         const lines = [];
-
-        bucket.overdue.forEach(it => {
-          lines.push(`- [JIRA OVERDUE] ${it.key}: ${it.summary} (due ${it.due})`);
-          lines.push(it.url);
-        });
-
-        bucket.dueSoon.forEach(it => {
-          lines.push(`- [JIRA DUE SOON] ${it.key}: ${it.summary} (due ${it.due})`);
-          lines.push(it.url);
-        });
+        bucket.overdue.forEach(it => { lines.push(`- [JIRA OVERDUE] ${it.key}: ${it.summary} (due ${it.due})\n${it.url}`); });
+        bucket.dueSoon.forEach(it => { lines.push(`- [JIRA DUE SOON] ${it.key}: ${it.summary} (due ${it.due})\n${it.url}`); });
 
         if (lines.length > 0) {
-          m.backlog = appendBlock_(m.backlog, lines.join('\n'));
+          m.today = appendBlock_(m.today, lines.join('\n'));
         }
-        
-        // 처리 완료된 멤버는 dueMap에서 제거 (미제출자 필터링을 위함)
         delete dueMap[m.id];
       });
     });
 
-    // 2. 슬랙 보고서를 쓰지 않았지만 Jira 티켓이 남아있는 멤버를 브리핑에 강제 추가
+    // 슬랙 미제출자여도 Jira 티켓이 있으면 브리핑에 추가
     if (aggregated.channels.length > 0) {
       const mainChannel = aggregated.channels[0];
-      
       Object.keys(dueMap).forEach(slackId => {
         const bucket = dueMap[slackId];
         const lines = [];
         
-        bucket.overdue.forEach(it => {
-          lines.push(`- [JIRA OVERDUE] ${it.key}: ${it.summary} (due ${it.due})`);
-          lines.push(it.url);
-        });
-        bucket.dueSoon.forEach(it => {
-          lines.push(`- [JIRA DUE SOON] ${it.key}: ${it.summary} (due ${it.due})`);
-          lines.push(it.url);
-        });
+        bucket.overdue.forEach(it => { lines.push(`- [JIRA OVERDUE] ${it.key}: ${it.summary} (due ${it.due})\n${it.url}`); });
+        bucket.dueSoon.forEach(it => { lines.push(`- [JIRA DUE SOON] ${it.key}: ${it.summary} (due ${it.due})\n${it.url}`); });
 
-        // 덧붙일 내용이 있다면 멤버 객체를 새로 생성해서 배열에 넣음
         if (lines.length > 0) {
-          const memberName = TARGET_MEMBERS[slackId] || '이름 알 수 없음';
           mainChannel.members.push({
             id: slackId,
-            name: memberName,
-            duties: '-', // [수정됨] '슬랙 업무 보고 미제출' 텍스트 제거하고 빈 값 처리
-            backlog: lines.join('\n'),
+            name: TARGET_MEMBERS[slackId] || '이름 알 수 없음',
+            yesterday: '-',
+            today: lines.join('\n'), // Jira 이슈를 today(오늘 할 일)에 추가
+            challenges: '-',
             time: '-'
           });
         }
       });
     }
-
   } catch (e) {
-    Logger.log('🚨 [Jira API Error] 데이터 조회 실패! 에러 원인을 확인하세요:');
-    Logger.log(e.message);
+    Logger.log('🚨 [Jira API Error]: ' + e.message);
   }
   return aggregated;
 }
@@ -533,134 +352,81 @@ function appendBlock_(original, extra) {
   return orig + '\n' + ext;
 }
 
-
 // ---------------------------------------------------------------------------
-// 4. Data Collection & Formatting Logic
+// 4. Data Collection (전사 기준 키워드 탐색)
 // ---------------------------------------------------------------------------
 
-/**
- * [수정됨] 스마트 수집 로직
- * - 한 유저가 여러 개의 메시지를 썼을 경우,
- * - 최신 메시지부터 순서대로 AI에게 물어봐서 "업무 보고가 맞다"고 한 첫 번째 메시지를 채택합니다.
- * - 잡담("제출함", "수정함")이 최신이어도 건너뛰고 진짜 보고서를 찾아냅니다.
- */
-/**
- * [수정됨] 스마트 수집 로직 (키워드 우선순위 적용)
- * 1순위: '완료한 업무' 텍스트가 포함된 메시지 우선 채택
- * 2순위: (없을 경우) 가장 최신 메시지 중 AI가 인정한 것 채택
- */
 function collectAllChannelsData(oldest) {
-  const now = new Date();
   const dateStr = Utilities.formatDate(new Date(), TZ, DATE_FORMAT);
   const channels = [];
 
-  Logger.log('=== 스마트 데이터 수집 시작 (키워드 우선) ===');
-
   CHANNELS.forEach((ch, index) => {
     if (index > 0) Utilities.sleep(400);
-    
-    // 1. 메시지 가져오기
     const messages = fetchSlackHistory(ch.id, oldest);
-    Logger.log(`[${ch.name}] 총 메시지 수: ${messages.length}`);
-
-    // 2. 유저별 그룹화
     const userMessagesMap = {};
     messages.forEach(msg => {
-      if (!userMessagesMap[msg.user]) {
-        userMessagesMap[msg.user] = [];
-      }
+      if (!userMessagesMap[msg.user]) userMessagesMap[msg.user] = [];
       userMessagesMap[msg.user].push(msg);
     });
 
     const members = [];
 
-    // 3. 각 유저별로 '진짜 보고서' 찾기
     Object.keys(userMessagesMap).forEach(userId => {
-      const userMsgs = userMessagesMap[userId]; // 최신순 정렬됨
+      const userMsgs = userMessagesMap[userId];
       
-      Logger.log(` -> 사용자(${userId}) 메시지 ${userMsgs.length}개 검사`);
-
-      // [핵심 변경 1] 키워드("완료한 업무" 등)가 포함된 메시지를 먼저 찾습니다.
-      let targetMsg = userMsgs.find(msg => msg.text && /완료\s*한\s*업무|완료\s*업무|완료한업무/.test(msg.text));
+      // 전사 기준 키워드: '전날 한 일' 또는 '오늘 할 일'
+      let targetMsg = userMsgs.find(msg => msg.text && /전날\s*한\s*일|오늘\s*할\s*일/i.test(msg.text));
       let found = false;
 
-      // [핵심 변경 2] 키워드 메시지가 있다면 우선적으로 AI 파싱 시도
       if (targetMsg) {
-        Logger.log(`    => [키워드 발견] "완료한 업무" 포함 메시지 우선 검사`);
         const extracted = callOpenAIParser(targetMsg.text);
-        
         if (extracted.isRelevant) {
           pushMemberData(members, targetMsg, extracted);
           found = true;
-          Logger.log(`    => [채택] 키워드 메시지 채택 완료`);
-        } else {
-          Logger.log(`    => [반려] 키워드는 있었으나 AI가 업무 보고가 아니라고 판단함.`);
         }
       }
 
-      // [핵심 변경 3] 키워드 메시지로 해결이 안 됐다면, 기존 방식(최신순 탐색)으로 Fallback
       if (!found) {
-        if (targetMsg) Logger.log(`    => [재검사] 일반 모드로 최신 글부터 다시 탐색합니다.`);
-        
         for (let i = 0; i < userMsgs.length; i++) {
           const msg = userMsgs[i];
-          
-          // 아까 검사했다가 실패한 키워드 메시지는 중복 검사 생략
           if (targetMsg && msg.ts === targetMsg.ts) continue;
-
           if (!msg.text) continue;
+          
           const extracted = callOpenAIParser(msg.text);
           if (extracted.isRelevant) {
-             Logger.log(`    => [일반 채택] 최신 메시지 발견 (내용: ${(msg.text || '').substring(0, 20)}...)`);
              pushMemberData(members, msg, extracted);
              found = true;
-             break; // 찾았으니 종료
+             break;
           }
         }
       }
-      
-      if (!found) {
-         Logger.log(`    => [실패] 유효한 업무 보고를 찾지 못함`);
-      }
     });
-
     channels.push({ name: ch.name, id: ch.id, members: members });
   });
 
   return { dateStr: dateStr, channels: channels };
 }
 
-// [내부 헬퍼 함수] 멤버 데이터 배열에 추가하는 로직
 function pushMemberData(membersArray, msg, extracted) {
   const time = Utilities.formatDate(new Date(msg.ts * 1000), TZ, TIME_FORMAT);
-  
-  // [수정됨] AI 추출 이름 대신, TARGET_MEMBERS에 등록된 슬랙 ID 기반의 정확한 이름을 1순위로 사용
   const actualName = TARGET_MEMBERS[msg.user] || extracted.name || "미기입";
 
   membersArray.push({
     id: msg.user,
     name: actualName,
-    duties: String(extracted.duties),
-    backlog: String(extracted.backlog),
+    yesterday: String(extracted.yesterday),
+    today: String(extracted.today),
+    challenges: String(extracted.challenges),
     time: time
   });
 }
 
 function fetchSlackHistory(channelId, oldest) {
-  const url = `https://slack.com/api/conversations.history?channel=${channelId}&oldest=${oldest}`;
-  const res = UrlFetchApp.fetch(url, {
-    headers: { Authorization: 'Bearer ' + SLACK_TOKEN },
-    muteHttpExceptions: true
+  const res = UrlFetchApp.fetch(`https://slack.com/api/conversations.history?channel=${channelId}&oldest=${oldest}`, {
+    headers: { Authorization: 'Bearer ' + SLACK_TOKEN }, muteHttpExceptions: true
   });
   const data = JSON.parse(res.getContentText());
-  if (!data.ok || !data.messages) return [];
-  return data.messages.filter(msg => !msg.bot_id && !msg.subtype);
-}
-
-function getLatestReportPerUser(messages) {
-  const map = new Map();
-  messages.forEach(msg => { if (!map.has(msg.user)) map.set(msg.user, msg); });
-  return map;
+  return (!data.ok || !data.messages) ? [] : data.messages.filter(msg => !msg.bot_id && !msg.subtype);
 }
 
 function applyExcelStyle(sheet) {
@@ -668,17 +434,14 @@ function applyExcelStyle(sheet) {
   if (lastRow <= 1) return;
 
   const header = sheet.getRange(1, 1, 1, NUM_COLUMNS);
-  header.setBackground('#333333')
-    .setFontColor('#ffffff')
-    .setFontWeight('bold')
-    .setHorizontalAlignment('center')
-    .setVerticalAlignment('middle');
+  header.setBackground('#333333').setFontColor('#ffffff').setFontWeight('bold').setHorizontalAlignment('center').setVerticalAlignment('middle');
 
   sheet.setColumnWidth(1, 45);
   sheet.setColumnWidth(2, 90);
   sheet.setColumnWidth(3, 100);
-  sheet.setColumnWidth(4, 500);
-  sheet.setColumnWidth(5, 300);
+  sheet.setColumnWidth(4, 300); // 전날 한 일
+  sheet.setColumnWidth(5, 300); // 오늘 할 일
+  sheet.setColumnWidth(6, 300); // 고민했던 부분
 
   for (let i = 2; i <= lastRow; i++) {
     if (i % 2 === 0) sheet.getRange(i, 1, 1, NUM_COLUMNS).setBackground('#f8f8f8');
@@ -686,61 +449,69 @@ function applyExcelStyle(sheet) {
 
   sheet.getRange(1, 1, lastRow, NUM_COLUMNS).setBorder(true, true, true, true, true, true, '#d9d9d9', SpreadsheetApp.BorderStyle.SOLID);
   sheet.getRange(2, 1, lastRow - 1, 3).setHorizontalAlignment('center');
-  sheet.getRange(2, 4, lastRow - 1, 2).setVerticalAlignment('top').setWrap(true);
+  sheet.getRange(2, 4, lastRow - 1, 3).setVerticalAlignment('top').setWrap(true);
   sheet.setFrozenRows(1);
 }
 
-function ensureDoubleNewlinesBetweenBullets(text) {
-  return text ? text.trim() : "";
-}
-
 // ---------------------------------------------------------------------------
-// 5. AI Logic (Parser & Summary)
+// 5. AI Parser (전사 프롬프트 무조건 동일 적용)
 // ---------------------------------------------------------------------------
 
-/**
- * [수정됨] AI 파서: 복잡한 링크/라벨 제거 및 JSON 파싱 안정성 강화
- */
 function callOpenAIParser(text) {
   if (text == null || typeof text !== 'string') {
-    return { isRelevant: false, name: '미기입', duties: '-', backlog: '-' };
+    return { isRelevant: false, name: '미기입', yesterday: '-', today: '-', challenges: '-', squad_yesterday: [], squad_today: [], squad_challenges: [] };
   }
   text = String(text).trim();
   if (!text) {
-    return { isRelevant: false, name: '미기입', duties: '-', backlog: '-' };
+    return { isRelevant: false, name: '미기입', yesterday: '-', today: '-', challenges: '-', squad_yesterday: [], squad_today: [], squad_challenges: [] };
   }
 
-  const url = "https://api.openai.com/v1/chat/completions";
-  
+  const validSquads = Object.values(PLATOON_CONFIG).reduce((acc, curr) => acc.concat(curr.squads), []).join(', ');
+
+  // 전사 AI 프롬프트를 토씨 하나 안 틀리고 그대로 이식
   const systemPrompt = 
     "너는 '데이터 정제 및 추출 전문가'야. 입력된 텍스트에서 업무 보고 데이터를 구조화된 JSON으로 추출해.\n\n" +
     
     "**1. 기본 규칙 (isRelevant)**:\n" +
-    "   - '완료된 업무'라는 어휘가 있고 업무와 관련된 내용(프로젝트명, 개발, 배포, 회의 등)이 포함되어 있으면 **true**.\n" +
-    "   - 단순 잡담('퇴근합니다', '안녕하세요')인 경우나 '오늘의 업무'가 들어간 경우 false.\n\n" +
+    "   - '전날 한 일' 또는 '오늘 할 일' 어휘가 있고 업무내용이 있으면 **true**. 단순 인사말이면 false.\n\n" +
 
-    "**2. 데이터 추출 규칙**:\n" +
-    "   - **name**: 텍스트의 첫 번째 줄을 이름으로 간주하거나 '이름: OOO' 패턴에서 추출. 없으면 '미기입'.\n" +
-    "   - **duties (완료한 업무)**: '완료한 업무', 'Today', '금일 업무' 등의 헤더 아래에 있는 항목들.\n" +
-    "   - **backlog (백로그)**: '백로그', 'Backlog', '예정 업무' 등의 헤더 아래에 있는 항목들.\n\n" +
+    "**2. 시트용 원본 데이터 (yesterday, today, challenges 추출)**:\n" +
+    "   - **yesterday**: 입력된 텍스트에서 '전날 한 일' 하위의 전체 내용을 하나의 문자열로 반환.\n" +
+    "   - **today**: 입력된 텍스트에서 '오늘 할 일' 하위의 전체 내용을 하나의 문자열로 반환.\n" +
+    "   - **challenges**: 입력된 텍스트에서 '고민했던 부분과 해결한 결과' 하위의 전체 내용을 하나의 문자열로 반환.\n" +
+    "   - 단, 링크 라벨('지라:', '컨플루언스:')은 제거하고 순수 URL만 줄바꿈(\\n)으로 보존해.\n\n" +
 
-    "**3. 텍스트 정제 및 링크 처리 (가장 중요)**:\n" +
-    "   - 모든 항목은 불렛 포인트(•, -)나 번호로 구분된 리스트 형태여야 함.\n" +
-    "   - **한 줄에 텍스트와 링크가 섞여 있다면 반드시 줄바꿈(\\n)으로 분리해.**\n" +
-    "   - **링크 라벨 제거**: '컨플루언스:', '지라:', 'Jira:', 'Wiki:', '링크:' 같은 텍스트는 **삭제**하고 순수 URL(http...)만 남겨.\n" +
-    "   - 쉼표(,)로 구분된 여러 링크가 있다면 각각 새로운 줄에 배치해.\n\n" +
-    
+    "**3. 브리핑용 스쿼드 분할 데이터 (squad_yesterday, squad_today, squad_challenges 배열)**:\n" +
+    "   - 담당자가 작성한 텍스트에서 'OO스쿼드:', '[DT]', 'WG' 등 **스쿼드 명칭**을 감지해.\n" +
+    `   - 유효한 스쿼드 키 목록: [${validSquads}]\n` +
+    "   - **명시되지 않거나 유효하지 않은 스쿼드는 무조건 '공통' 스쿼드로 할당해.**\n" +
+    "   - **squad_yesterday**, **squad_today**, **squad_challenges**를 각각 객체 배열로 반환해.\n" +
+    "     형식: { \"squad\": \"DT\", \"content\": \"- 로그인 API 구현\\nhttp://...\" }\n\n" +
+
     "**[출력 예시]**\n" +
-    "입력: '- 로그인 API 구현, 지라: http://jira..., 컨플루언스: http://wiki...'\n" +
-    "출력 duties: '- 로그인 API 구현\\nhttp://jira...\\nhttp://wiki...'\n\n" +
-
-    "**4. JSON 필드**: isRelevant(boolean), name(string), duties(string), backlog(string).";
+    "입력: '이름: 박유원\\n전날 한 일:\\nDT스쿼드: - 로그인 연동, 링크: http://jira...\\n이상한스쿼드: - 위젯 테스트\\n오늘 할 일:\\nWG스쿼드: - 기획서 작성'\n" +
+    "출력 JSON:\n" +
+    "{\n" +
+    "  \"isRelevant\": true,\n" +
+    "  \"name\": \"박유원\",\n" +
+    "  \"yesterday\": \"- 로그인 연동\\nhttp://jira...\\n- 위젯 테스트\",\n" +
+    "  \"today\": \"- 기획서 작성\",\n" +
+    "  \"challenges\": \"-\",\n" +
+    "  \"squad_yesterday\": [\n" +
+    "    { \"squad\": \"DT\", \"content\": \"- 로그인 연동\\nhttp://jira...\" },\n" +
+    "    { \"squad\": \"공통\", \"content\": \"- 위젯 테스트\" }\n" +
+    "  ],\n" +
+    "  \"squad_today\": [\n" +
+    "    { \"squad\": \"WG\", \"content\": \"- 기획서 작성\" }\n" +
+    "  ],\n" +
+    "  \"squad_challenges\": []\n" +
+    "}";
 
   const options = {
     method: "post",
     headers: { "Authorization": "Bearer " + OPENAI_API_KEY, "Content-Type": "application/json" },
     payload: JSON.stringify({
-      model: "gpt-4o",
+      model: "gpt-4o", // 모델
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: text }
@@ -751,40 +522,32 @@ function callOpenAIParser(text) {
   };
 
   try {
-    const res = UrlFetchApp.fetch(url, options);
-    const content = JSON.parse(res.getContentText()).choices[0].message.content;
-    const result = JSON.parse(content);
-
-    // [수정됨] duties의 기본값을 '- 내용 없음'에서 '-'로 변경
-    const duties = (result.duties || '-').trim();
-    const backlog = (result.backlog || '-').trim();
-
-    const fallbackRelevant = text.includes('완료') || text.includes('업무') || text.length > 15;
+    const res = UrlFetchApp.fetch(OPENAI_CHAT_URL, options);
+    const result = JSON.parse(JSON.parse(res.getContentText()).choices[0].message.content);
+    const fallbackRelevant = text.includes('전날') || text.includes('오늘') || text.length > 15;
 
     return {
       isRelevant: result.isRelevant === true || fallbackRelevant,
       name: result.name || "미기입",
-      duties: duties,
-      backlog: backlog
+      yesterday: (result.yesterday || '-').trim(),
+      today: (result.today || '-').trim(),
+      challenges: (result.challenges || '-').trim(),
+      squad_yesterday: Array.isArray(result.squad_yesterday) ? result.squad_yesterday : [],
+      squad_today: Array.isArray(result.squad_today) ? result.squad_today : [],
+      squad_challenges: Array.isArray(result.squad_challenges) ? result.squad_challenges : []
     };
   } catch (e) {
     Logger.log(`[AI 파싱 에러] ${e.message}`);
-    return { 
-        isRelevant: true, 
-        name: '파싱오류(원본)', 
-        duties: text,
-        backlog: '-' 
-    };
+    return { isRelevant: true, name: '파싱오류', yesterday: text, today: '-', challenges: '-', squad_yesterday: [], squad_today: [], squad_challenges: [] };
   }
 }
 
-/**
- * AI Summarizer: 전체 업무 3줄 요약 생성
- */
 function callOpenAIThreeSummaries(aggregated) {
   const systemPrompt =
-    'Given the daily report data, output exactly 3 short summary sentences in Korean for "핵심 3줄 요약". ' +
-    'Capture key outcomes or risks. Output JSON: { "summaries": ["sent1", "sent2", "sent3"] }';
+    'You are a daily report summarizer. Given structured data from Slack channels, ' +
+    'output exactly 3 short summary sentences in Korean for "핵심 3줄 요약". ' +
+    'Each sentence should capture one key outcome, decision, or risk. ' +
+    'Output only a JSON object with a single key "summaries" (array of exactly 3 strings). No other text.';
 
   const options = {
     method: 'post',
@@ -802,9 +565,7 @@ function callOpenAIThreeSummaries(aggregated) {
 
   try {
     const res = UrlFetchApp.fetch(OPENAI_CHAT_URL, options);
-    const parsed = JSON.parse(res.getContentText());
-    const content = parsed.choices[0].message.content;
-    const result = JSON.parse(content);
+    const result = JSON.parse(JSON.parse(res.getContentText()).choices[0].message.content);
     const arr = result.summaries || [];
     return [arr[0] || '', arr[1] || '', arr[2] || ''];
   } catch (e) {
@@ -813,14 +574,13 @@ function callOpenAIThreeSummaries(aggregated) {
 }
 
 // ---------------------------------------------------------------------------
-// 6. Slack Briefing Builder
+// 6. Slack Briefing Builder (ENB 전용 채널 뷰 + 전사 포맷 적용)
 // ---------------------------------------------------------------------------
 
 function buildBriefingBlocks(aggregated, totalCount, summaries) {
   const dateLabel = Utilities.formatDate(new Date(), TZ, DATE_BRIEFING_FORMAT);
   const blocks = [];
 
-  // 1. 헤더
   blocks.push({
     type: 'header',
     text: { type: 'plain_text', text: ':clipboard: 전일 업무 브리핑 | ' + dateLabel, emoji: true }
@@ -831,67 +591,49 @@ function buildBriefingBlocks(aggregated, totalCount, summaries) {
   });
   blocks.push({ type: 'divider' });
 
-  // 2. 3줄 요약
   blocks.push({
     type: 'section',
     text: {
       type: 'mrkdwn',
-      text: '*핵심 3줄 요약*\n'
-        + '1. ' + (summaries[0] || '-') + '\n'
-        + '2. ' + (summaries[1] || '-') + '\n'
-        + '3. ' + (summaries[2] || '-')
+      text: '*핵심 3줄 요약*\n1. ' + (summaries[0] || '-') + '\n2. ' + (summaries[1] || '-') + '\n3. ' + (summaries[2] || '-')
     }
   });
   blocks.push({ type: 'divider' });
   blocks.push({ type: 'section', text: { type: 'mrkdwn', text: '*:bar_chart: 상세 업무 현황*' } });
 
-  // 3. 채널별 본문
   aggregated.channels.forEach(ch => {
     if (ch.members.length === 0) return;
 
+    // ENB 전용 헤더
     const channelHeader = `*Corporate Operator 셀*`;
-    
-    // [수정 핵심] 문자열 덧셈 대신 배열을 사용해 간격과 꼬리 공백을 완벽하게 통제합니다.
     const memberTexts = [];
 
     ch.members.forEach(m => {
       const blockText = formatMemberBlock(m);
-      
-      // 내용이 비어있지 않은 경우에만, 텍스트 앞뒤의 불필요한 줄바꿈을 완벽히 잘라내고 배열에 넣습니다.
       if (blockText && blockText.trim() !== "") {
         memberTexts.push(blockText.trim());
       }
     });
 
-    // 출력할 멤버가 없으면 생략
     if (memberTexts.length === 0) return;
 
-    // [간격 조절 부분] 멤버 사이를 무조건 지정된 줄바꿈으로만 연결합니다.
-    // - \n\n : 일반적인 1줄 띄어쓰기 (문단 구분)
-    // - \n\n\n : 더 확실한 2줄 띄어쓰기
     let channelBody = memberTexts.join('\n\n\n');
-
-    // 슬랙 블록 글자 수 제한 안전장치
     if (channelBody.length > 2900) {
       channelBody = channelBody.substring(0, 2900) + "...(내용 생략됨)";
     }
 
     blocks.push({
       type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `${channelHeader}\n\n${channelBody}`
-      }
+      text: { type: "mrkdwn", text: `${channelHeader}\n\n${channelBody}` }
     });
-
     blocks.push({ type: 'divider' });
   });
 
   return blocks;
 }
 
+// 렌더링 방식에 전사 기준 (전날 한 일 / 오늘 할 일 / 고민) 적용
 function formatMemberBlock(m) {
-  // 빈 줄이나 의미 없는 문자 제거 헬퍼
   const clean = (txt) => {
     if (!txt || txt === '-') return [];
     return txt.split(/\r?\n/).filter(line => {
@@ -900,22 +642,18 @@ function formatMemberBlock(m) {
     });
   };
 
-  const duties = clean(m.duties);
-  const backlog = clean(m.backlog);
+  const yesterday = clean(m.yesterday);
+  const today = clean(m.today);
+  const challenges = clean(m.challenges);
 
-  // [수정됨] 완료한 업무와 백로그가 둘 다 없으면 빈 문자열을 반환하여 아예 출력하지 않음
-  if (duties.length === 0 && backlog.length === 0) {
-    return "";
-  }
+  if (yesterday.length === 0 && today.length === 0 && challenges.length === 0) return "";
 
   const lines = ['*' + m.name + '*'];
   
-  // 포맷팅 로직
   const processLines = (textArray) => {
     textArray.forEach(line => {
       let trimmed = line.trim();
       trimmed = trimmed.replace(/^[-•*]\s*/, '');
-
       if (trimmed.startsWith('http')) {
         lines.push(`    ${trimmed}`); 
       } else {
@@ -924,22 +662,23 @@ function formatMemberBlock(m) {
     });
   };
 
-  if (duties.length > 0) {
-    lines.push('_완료한 업무:_');
-    processLines(duties);
+  if (yesterday.length > 0) {
+    lines.push('_전날 한 일:_');
+    processLines(yesterday);
   }
 
-  if (backlog.length > 0) {
-    lines.push('_백로그:_');
-    processLines(backlog);
+  if (today.length > 0) {
+    lines.push('_오늘 할 일:_');
+    processLines(today);
+  }
+  
+  if (challenges.length > 0) {
+    lines.push('_고민했던 부분과 해결한 결과:_');
+    processLines(challenges);
   }
   
   return lines.join('\n');
 }
-
-// ---------------------------------------------------------------------------
-// 7. Slack Sending Helpers
-// ---------------------------------------------------------------------------
 
 function postBlocksToSlack(channelId, fallbackText, blocks) {
   UrlFetchApp.fetch("https://slack.com/api/chat.postMessage", {
