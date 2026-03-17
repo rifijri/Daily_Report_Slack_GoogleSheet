@@ -4,53 +4,28 @@
  */
 
 /** Settings – consider Script Properties for tokens in production */
-const SLACK_TOKEN = 'xoxb-7204631658336-10499808538145-1rIZYuFg8ZEmUOXfHqiuhvAk';
-const OPENAI_API_KEY = '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';
-const FOLDER_ID = '1oNOXk3uAdqgVoHYEzzr2kWq2_oDIRG6Z';
+const SLACK_TOKEN = '';
+const OPENAI_API_KEY = '';
+const FOLDER_ID = '';
 
 const CHANNELS = [
-  { id: 'C0AEEE47WTE', name: 'product owner' },
-  { id: 'C0ADVC5FNNB', name: 'data ai engineer' },
-  { id: 'C0AEEE6PP2Q', name: 'designer' },
-  { id: 'C0AEARMSTV0', name: 'platform engineer' },
-  { id: 'C0AEEDYHN0L', name: 'software engineer' }
+  { id: '', name: 'product owner' },
+  { id: '', name: 'data ai engineer' },
+  { id: '', name: 'designer' },
+  { id: '', name: 'platform engineer' },
+  { id: '', name: 'software engineer' }
 ];
 
 const TARGET_MEMBERS = {
-  'U075QU6C8CA':'강용석',
-  'U08121KA8UE':'곽진호',
-  'U0A7ZNA3GGM':'김대관',
-  'U08QZ1R50BW':'김두호',
-  'U0763JDP665':'김우현',
-  'U0875KBHBGE':'김태유',
-  'U075QQVDFV1':'나형선',
-  'U089KN5LLR2':'박순혁',
-  'U07J2CNL360':'배수민',
-  'U0875KBQ73Q':'서영민',
-  'U07LDAN8RMK':'설정우',
-  'U08MVTYLPBK':'송창원',
-  'U076DN2PRA4':'신재하',
-  'U076DN2H9KJ':'엄재식',
-  'U09P63ALASY':'윤순호',
-  'U075KN4SD5Y':'이규백',
-  'U08QSU2J7M5':'이득환',
-  'U08121KG6JJ':'임수빈',
-  'U07HGNYFGLA':'장지훈',
-  'U076DN1DAPJ':'전창환',
-  'U084A69333K':'주창륜',
-  'U07H26XKCBH':'하지민',
-  'U08Q8DFA7B3':'한동균',
-  'U075QQT5G2X':'한재현',
-  'U08VARJECTC':'한태경'
 };
 
 /** =========================
  * Jira Settings (Hardcoded)
  * ========================= */
-const JIRA_BASE_URL = 'https://waiker.atlassian.net';
-const JIRA_ORG_ID = 'c566ac18-j916-1397-j0db-0407c8002a19';
-const JIRA_EMAIL = 'ra@waiker.ai';
-const JIRA_API_TOKEN = 'ATATT3xFfGF0tkeki_WLYAG5vlI03EmB6r5DxRjLmRVHGTw6F2Wi0ED6QADUtslNeqB04I3_FyUpgABK7jautgkdyka1GzyLx16Jjiz1QkHoNaciwRGrph4zjjuIu1b3Uxu-z07_Be6c8SBWGQ031JjrfdMaYjvT83TNtRtZFV60R9wmO5yFFb0=3A8D87DA';
+const JIRA_BASE_URL = '';
+const JIRA_ORG_ID = '';
+const JIRA_EMAIL = '';
+const JIRA_API_TOKEN = ';
 
 const JIRA_DUE_SOON_DAYS = 1;
 const JIRA_OVERDUE_LOOKBACK_DAYS = 7;
@@ -59,32 +34,6 @@ const JIRA_OVERDUE_LOOKBACK_DAYS = 7;
  * Slack <-> Jira accountId 매핑 (하드코딩)
  */
 const ID_MAP = [
-  { slack: 'U075QU6C8CA', jira: '712020:bec533e8-0d46-46c6-8b32-311b5aeea52a', name: '강용석' },
-  { slack: 'U08121KA8UE', jira: '712020:4053f503-664a-43b0-b715-18538d6fc38c', name: '곽진호' },
-  { slack: 'U0A7ZNA3GGM', jira: '712020:bcb55a24-07bc-4384-a6f4-db8a85408833', name: '김대관' },
-  { slack: 'U08QZ1R50BW', jira: '712020:064163a3-3973-4889-8973-252cd404cf44', name: '김두호' },
-  { slack: 'U0763JDP665', jira: '712020:13249a48-63af-403e-800d-5bb33a06901d', name: '김우현' },
-  { slack: 'U0875KBHBGE', jira: '712020:cb29be71-9b35-4b9d-ad22-03e7ee5eb59e', name: '김태유' },
-  { slack: 'U075QQVDFV1', jira: '712020:d165dc74-ec27-4e02-bba4-eda7e08619b2', name: '나형선' },
-  { slack: 'U089KN5LLR2', jira: '712020:29f9cbd0-72c2-4541-ad88-904f9b6a0fa2', name: '박순혁' },
-  { slack: 'U07J2CNL360', jira: '712020:3619fdf9-2d99-4187-b63a-1b74edd37dea', name: '배수민' },
-  { slack: 'U0875KBQ73Q', jira: '712020:07411156-fcf7-4b0d-95f0-0953912ad266', name: '서영민' },
-  { slack: 'U07LDAN8RMK', jira: '712020:a8485338-bfc5-4981-bd47-65d09d7fb0a2', name: '설정우' },
-  { slack: 'U08MVTYLPBK', jira: '712020:9f826a1b-2131-4fb1-ac85-2a980829db0d', name: '송창원' },
-  { slack: 'U076DN2PRA4', jira: '712020:d9ca19e2-dcdd-45fe-9468-34645e5032a7', name: '신재하' },
-  { slack: 'U0A5ZSVE4SY', jira: '712020:8a024903-7970-4529-a50a-a03af20319f6', name: '신희송' },
-  { slack: 'U076DN2H9KJ', jira: '712020:8c55ccff-3e41-4a62-bacf-430644ae5d57', name: '엄재식' },
-  { slack: 'U09P63ALASY', jira: '712020:5f903dd6-b9f9-4ca4-9836-086b7a0b29ce', name: '윤순호' },
-  { slack: 'U075KN4SD5Y', jira: '712020:788c2812-9839-46a9-8c09-e34377fb7b5a', name: '이규백' },
-  { slack: 'U08QSU2J7M5', jira: '712020:554e3b03-6be3-4ced-9ac4-a05e66aa2694', name: '이득환' },
-  { slack: 'U08121KG6JJ', jira: '712020:3ca8906b-48e6-4c14-98d0-4b316446f070', name: '임수빈' },
-  { slack: 'U07HGNYFGLA', jira: '712020:0420d080-4924-4842-82f9-1ee281c82fe7', name: '장지훈' },
-  { slack: 'U076DN1DAPJ', jira: '609e032197f3d40070d73774', name: '전창환' },
-  { slack: 'U084A69333K', jira: '712020:7b2f2844-2ace-4f10-90bf-bce9e897686b', name: '주창륜' },
-  { slack: 'U07H26XKCBH', jira: '712020:f55bfeee-5c22-4d48-a6b6-d3d266fa1a55', name: '하지민' },
-  { slack: 'U08Q8DFA7B3', jira: '712020:f9680e5c-ac04-48d6-aabe-d6193046798d', name: '한동균' },
-  { slack: 'U075QQT5G2X', jira: '61078efec51f3a0069dbda7a', name: '한재현' },
-  { slack: 'U08VARJECTC', jira: '712020:105b5567-75a1-479a-b140-06f847484b4b', name: '한태경' }
 ];
 
 /** Layout constants */
@@ -98,7 +47,7 @@ const NUM_COLUMNS = 5;
 const HEADER_ROW = ['No.', '작성시간', '이름', '오늘 완료한 업무', '백로그'];
 
 /** GPT 요약(전일 브리핑)을 포스팅할 Slack 채널 ID */
-const BRIEFING_CHANNEL_ID = 'C0A5CLXQKRV';
+const BRIEFING_CHANNEL_ID = '';
 
 // ---------------------------------------------------------------------------
 // Block Kit 메시지 정의 
@@ -113,7 +62,7 @@ const MORNING_MESSAGE = [
     "type": "section",
     "text": {
       "type": "mrkdwn",
-      "text": "*이름*: OOO\n\n*오늘의 업무*\n• 업무 1 개요, <https://waiker.atlassian.net/...|컨플루언스 링크>, <https://waiker.atlassian.net/...|지라 링크>\n• 업무 2 개요, <https://waiker.atlassian.net/...|컨플루언스 링크>, <https://waiker.atlassian.net/...|지라 링크>"
+      "text": "*이름*: OOO\n\n*오늘의 업무*\n• 업무 1 개요, <https://".atlassian.net/...|컨플루언스 링크>, <https://".atlassian.net/...|지라 링크>\n• 업무 2 개요, <https://".atlassian.net/...|컨플루언스 링크>, <https://".atlassian.net/...|지라 링크>"
     }
   }
 ];
@@ -127,7 +76,7 @@ const EVENING_MESSAGE = [
     "type": "section",
     "text": {
       "type": "mrkdwn",
-      "text": "*이름*: OOO\n\n*완료한 업무*\n• 업무 1 설명, <https://waiker.atlassian.net/...|컨플루언스 링크>, <https://waiker.atlassian.net/...|지라 링크>\n• 업무 2 설명\n\n*백로그*\n• 업무 1 요약, <https://waiker.atlassian.net/...|컨플루언스 링크>, <https://waiker.atlassian.net/...|지라 링크>"
+      "text": "*이름*: OOO\n\n*완료한 업무*\n• 업무 1 설명, <https://".atlassian.net/...|컨플루언스 링크>, <https://".atlassian.net/...|지라 링크>\n• 업무 2 설명\n\n*백로그*\n• 업무 1 요약, <https://".atlassian.net/...|컨플루언스 링크>, <https://".atlassian.net/...|지라 링크>"
     }
   }
 ];
